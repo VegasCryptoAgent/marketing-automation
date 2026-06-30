@@ -71,18 +71,41 @@ DEFAULT_SETTINGS = {
 }
 
 def load_settings():
+    settings = DEFAULT_SETTINGS.copy()
+    
+    # 1. Load from file if exists
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "r") as f:
-                settings = json.load(f)
-                # Ensure all default keys are present
-                for k, v in DEFAULT_SETTINGS.items():
-                    if k not in settings:
+                file_settings = json.load(f)
+                for k, v in file_settings.items():
+                    if v is not None and v != "":
                         settings[k] = v
-                return settings
         except Exception as e:
             logger.error(f"Error reading settings file: {e}")
-    return DEFAULT_SETTINGS.copy()
+            
+    # 2. Override with system environment variables
+    for k in settings.keys():
+        env_val = os.environ.get(k.upper())
+        if env_val is not None and env_val != "":
+            if env_val.lower() == "true":
+                settings[k] = True
+            elif env_val.lower() == "false":
+                settings[k] = False
+            elif k == "autonomous_hour":
+                try:
+                    settings[k] = int(env_val)
+                except:
+                    pass
+            elif k == "autonomous_platforms":
+                try:
+                    settings[k] = json.loads(env_val)
+                except:
+                    settings[k] = [p.strip() for p in env_val.split(",") if p.strip()]
+            else:
+                settings[k] = env_val
+                
+    return settings
 
 def save_settings(settings):
     try:
