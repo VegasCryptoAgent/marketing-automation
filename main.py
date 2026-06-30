@@ -28,10 +28,22 @@ async def add_no_cache_headers(request, call_next):
     response.headers["Expires"] = "0"
     return response
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def get_binary_path(name: str) -> str:
+    import shutil
+    brew_path = f"/opt/homebrew/bin/{name}"
+    if os.path.exists(brew_path):
+        return brew_path
+    which_path = shutil.which(name)
+    if which_path:
+        return which_path
+    return name
+
 # Directories for temporary uploads and configuration
-UPLOAD_DIR = "/Users/majid/.gemini/antigravity/scratch/marketing-automation/uploads"
-GENERATED_DIR = "/Users/majid/.gemini/antigravity/scratch/marketing-automation/static/assets/generated"
-SETTINGS_FILE = "/Users/majid/.gemini/antigravity/scratch/marketing-automation/settings.json"
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+GENERATED_DIR = os.path.join(BASE_DIR, "static", "assets", "generated")
+SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
@@ -116,7 +128,7 @@ def upload_video_to_twitter(video_path: str, settings: dict) -> Optional[int]:
         
     abs_video_path = video_path
     if video_path.startswith("/static/"):
-        abs_video_path = os.path.join("/Users/majid/.gemini/antigravity/scratch/marketing-automation", video_path.lstrip("/"))
+        abs_video_path = os.path.join(BASE_DIR, video_path.lstrip("/"))
         
     if not os.path.exists(abs_video_path):
         logger.error(f"Twitter upload: Video file does not exist at {abs_video_path}")
@@ -145,7 +157,7 @@ def upload_video_to_linkedin(video_path: str, author_urn: str, settings: dict) -
         
     abs_video_path = video_path
     if video_path.startswith("/static/"):
-        abs_video_path = os.path.join("/Users/majid/.gemini/antigravity/scratch/marketing-automation", video_path.lstrip("/"))
+        abs_video_path = os.path.join(BASE_DIR, video_path.lstrip("/"))
         
     if not os.path.exists(abs_video_path):
         logger.error(f"LinkedIn upload: Video file does not exist at {abs_video_path}")
@@ -288,7 +300,7 @@ def ensure_video_under_limit(video_path: str, max_duration_sec: int = 120) -> st
     import os
     
     probe_cmd = [
-        "/opt/homebrew/bin/ffprobe",
+        get_binary_path("ffprobe"),
         "-v", "error",
         "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1",
@@ -307,7 +319,7 @@ def ensure_video_under_limit(video_path: str, max_duration_sec: int = 120) -> st
             trimmed_path = f"{base}_trimmed{ext}"
             
             trim_cmd = [
-                "/opt/homebrew/bin/ffmpeg", "-y",
+                get_binary_path("ffmpeg"), "-y",
                 "-ss", "00:00:00",
                 "-i", video_path,
                 "-t", str(max_duration_sec),
@@ -516,7 +528,7 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
                 target_url = f"ytsearch1:{req.title}"
             
             cmd = [
-                "/opt/homebrew/bin/yt-dlp",
+                get_binary_path("yt-dlp"),
                 "-f", "b[ext=mp4]/b",
                 "--no-playlist",
                 "-o", out_template,
@@ -528,7 +540,7 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
             if result.returncode != 0:
                 logger.warning(f"yt-dlp strict mp4 check failed: {result.stderr}. Trying fallback...")
                 cmd_fallback = [
-                    "/opt/homebrew/bin/yt-dlp",
+                    get_binary_path("yt-dlp"),
                     "--no-playlist",
                     "-o", out_template,
                     "--merge-output-format", "mp4",
@@ -540,7 +552,7 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
                 if result.returncode != 0 and req.title and not target_url.startswith("ytsearch1:"):
                     logger.info(f"Direct download failed. Swapping to final YouTube search fallback for: {req.title}")
                     cmd_search = [
-                        "/opt/homebrew/bin/yt-dlp",
+                        get_binary_path("yt-dlp"),
                         "--no-playlist",
                         "-o", out_template,
                         "--merge-output-format", "mp4",
@@ -551,7 +563,7 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
                 if result.returncode != 0:
                     logger.info("Search fallback failed. Using verified cinematic trailer fallback...")
                     cmd_final_safety = [
-                        "/opt/homebrew/bin/yt-dlp",
+                        get_binary_path("yt-dlp"),
                         "--no-playlist",
                         "-o", out_template,
                         "--merge-output-format", "mp4",
@@ -579,7 +591,7 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
             if ext != ".mp4":
                 update_job_status(job_id, "PROCESSING", 80, "Converting video container formats to mp4...")
                 conv_cmd = [
-                    "/opt/homebrew/bin/ffmpeg", "-y",
+                    get_binary_path("ffmpeg"), "-y",
                     "-i", downloaded_file,
                     "-c", "copy",
                     target_path
@@ -588,7 +600,7 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
                 if conv_res.returncode != 0:
                     # Fallback encode
                     conv_cmd_enc = [
-                        "/opt/homebrew/bin/ffmpeg", "-y",
+                        get_binary_path("ffmpeg"), "-y",
                         "-i", downloaded_file,
                         "-c:v", "libx264", "-pix_fmt", "yuv420p",
                         "-c:a", "aac",
@@ -642,7 +654,7 @@ class SchedulePostRequest(BaseModel):
     campaign_title: Optional[str] = "Staged Post"
     video_path: Optional[str] = None
 
-SCHEDULED_POSTS_FILE = "/Users/majid/.gemini/antigravity/scratch/marketing-automation/scheduled_posts.json"
+SCHEDULED_POSTS_FILE = os.path.join(BASE_DIR, "scheduled_posts.json")
 
 def load_scheduled_posts() -> List[dict]:
     if os.path.exists(SCHEDULED_POSTS_FILE):
@@ -1079,8 +1091,8 @@ def trigger_autopilot(background_tasks: BackgroundTasks):
     return {"status": "SUCCESS", "message": "Autonomous autopilot pipeline triggered."}
 
 # Mount static files folder
-app.mount("/static", StaticFiles(directory="/Users/majid/.gemini/antigravity/scratch/marketing-automation/static"), name="static")
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 @app.get("/")
 def read_root():
-    return FileResponse("/Users/majid/.gemini/antigravity/scratch/marketing-automation/static/index.html")
+    return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))

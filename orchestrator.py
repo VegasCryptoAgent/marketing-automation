@@ -10,6 +10,18 @@ from google.genai import types
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("orchestrator")
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def get_binary_path(name: str) -> str:
+    import shutil
+    brew_path = f"/opt/homebrew/bin/{name}"
+    if os.path.exists(brew_path):
+        return brew_path
+    which_path = shutil.which(name)
+    if which_path:
+        return which_path
+    return name
+
 # Structured output schemas using Pydantic
 class TwitterThread(BaseModel):
     tweets: List[str] = Field(description="A list of 1 to 3 tweets representing a thread. Each tweet must be strictly under 280 characters.")
@@ -206,7 +218,7 @@ def check_url_valid(url: str) -> bool:
     if any(p in url for p in ["example", "status/1234", "DigitalDreams", "AIVoyager", "ChronoDrifter", "abcdef", "examplecyber", "dQw4w9WgXcQ", "watch?v=12345"]):
         return False
     cmd = [
-        "/opt/homebrew/bin/yt-dlp",
+        get_binary_path("yt-dlp"),
         "--simulate",
         url
     ]
@@ -219,7 +231,7 @@ def check_url_valid(url: str) -> bool:
 def resolve_trend_mock_url(title: str) -> str:
     import subprocess
     cmd = [
-        "/opt/homebrew/bin/yt-dlp",
+        get_binary_path("yt-dlp"),
         "--no-playlist",
         "--flat-playlist",
         "--print", "webpage_url",
@@ -354,7 +366,7 @@ def run_runway_rendering(job_id: str, prompt: str, settings: Dict[str, Any], dur
             "Content-Type": "application/json"
         }
         
-        assets_dir = "/Users/majid/.gemini/antigravity/scratch/marketing-automation/static/assets/generated"
+        assets_dir = os.path.join(BASE_DIR, "static", "assets", "generated")
         os.makedirs(assets_dir, exist_ok=True)
         dest_path = os.path.join(assets_dir, f"{job_id}.mp4")
 
@@ -475,7 +487,7 @@ def run_runway_rendering(job_id: str, prompt: str, settings: Dict[str, Any], dur
             try:
                 # Concatenate videos without re-encoding
                 subprocess.run([
-                    "/opt/homebrew/bin/ffmpeg", "-y", "-f", "concat", "-safe", "0", 
+                    get_binary_path("ffmpeg"), "-y", "-f", "concat", "-safe", "0", 
                     "-i", concat_file_path, "-c", "copy", dest_path
                 ], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             except Exception as ffmpeg_err:
@@ -673,7 +685,7 @@ def run_video_generation(
             video_content = response.content
             
         # Target path
-        assets_dir = "/Users/majid/.gemini/antigravity/scratch/marketing-automation/static/assets/generated"
+        assets_dir = os.path.join(BASE_DIR, "static", "assets", "generated")
         os.makedirs(assets_dir, exist_ok=True)
         dest_path = os.path.join(assets_dir, f"{job_id}.mp4")
         
