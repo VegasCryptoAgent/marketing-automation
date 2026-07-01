@@ -292,9 +292,9 @@ function PipelineScreen() {
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <Tabs active={tab} onChange={setTab} items={[{ value: 'linkedin', label: 'LinkedIn' }, { value: 'twitter', label: 'Twitter / X' }, { value: 'instagram', label: 'Instagram' }]} />
                 <div style={{ marginTop: '1rem', flex: 1 }}>
-                  {tab === 'linkedin' && <Textarea rows={9} defaultValue={result.copy.linkedin_post} />}
-                  {tab === 'twitter' && <Textarea rows={9} defaultValue={result.copy.twitter_thread.join('\n\n')} />}
-                  {tab === 'instagram' && <Textarea rows={9} defaultValue={result.copy.instagram_caption + '\n\n' + result.copy.suggested_hashtags.map(h => '#' + h.replace(/^#/, '')).join(' ')} />}
+                  {tab === 'linkedin' && <Textarea key={result.brief.video_summary} rows={9} defaultValue={result.copy.linkedin_post} />}
+                  {tab === 'twitter' && <Textarea key={result.brief.video_summary} rows={9} defaultValue={result.copy.twitter_thread.join('\n\n')} />}
+                  {tab === 'instagram' && <Textarea key={result.brief.video_summary} rows={9} defaultValue={result.copy.instagram_caption + '\n\n' + result.copy.suggested_hashtags.map(h => '#' + h.replace(/^#/, '')).join(' ')} />}
                 </div>
                 <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
                   <Button variant="secondary" onClick={() => {
@@ -480,9 +480,9 @@ function TrendsScreen() {
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <Tabs active={ctab} onChange={setCtab} items={[{ value: 'linkedin', label: 'LinkedIn' }, { value: 'twitter', label: 'Twitter / X' }, { value: 'instagram', label: 'Instagram' }]} />
                   <div style={{ marginTop: '1rem', flex: 1 }}>
-                    {ctab === 'linkedin' && <Textarea rows={9} defaultValue={active.recreated_linkedin_post} />}
-                    {ctab === 'twitter' && <Textarea rows={9} defaultValue={active.recreated_twitter_thread.join('\n\n')} />}
-                    {ctab === 'instagram' && <Textarea rows={9} defaultValue={active.recreated_instagram_caption} />}
+                    {ctab === 'linkedin' && <Textarea key={active.title} rows={9} defaultValue={active.recreated_linkedin_post} />}
+                    {ctab === 'twitter' && <Textarea key={active.title} rows={9} defaultValue={active.recreated_twitter_thread.join('\n\n')} />}
+                    {ctab === 'instagram' && <Textarea key={active.title} rows={9} defaultValue={active.recreated_instagram_caption} />}
                   </div>
                   <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
                     <Button variant="secondary" onClick={() => {
@@ -593,9 +593,9 @@ function RepurposerScreen() {
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <Tabs active={tab} onChange={setTab} items={[{ value: 'linkedin', label: 'LinkedIn' }, { value: 'twitter', label: 'Twitter / X' }, { value: 'instagram', label: 'Instagram' }]} />
                 <div style={{ marginTop: '1rem', flex: 1 }}>
-                  {tab === 'linkedin' && <Textarea rows={9} defaultValue={copy.repurposed_linkedin_post} />}
-                  {tab === 'twitter' && <Textarea rows={9} defaultValue={copy.repurposed_twitter_thread.join('\n\n')} />}
-                  {tab === 'instagram' && <Textarea rows={9} defaultValue={copy.repurposed_instagram_caption} />}
+                  {tab === 'linkedin' && <Textarea key={copy.original_post_text} rows={9} defaultValue={copy.repurposed_linkedin_post} />}
+                  {tab === 'twitter' && <Textarea key={copy.original_post_text} rows={9} defaultValue={copy.repurposed_twitter_thread.join('\n\n')} />}
+                  {tab === 'instagram' && <Textarea key={copy.original_post_text} rows={9} defaultValue={copy.repurposed_instagram_caption} />}
                 </div>
                 <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
                   <Button variant="secondary" onClick={() => {
