@@ -591,7 +591,7 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
                         "--no-playlist",
                         "-o", out_template,
                         "--merge-output-format", "mp4",
-                        "https://www.youtube.com/watch?v=kQD2bBnb-Yc"
+                        "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
                     ]
                     result = await asyncio.to_thread(subprocess.run, cmd_final_safety, capture_output=True, text=True, timeout=90)
                     if result.returncode != 0:

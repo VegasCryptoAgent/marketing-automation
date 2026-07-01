@@ -247,7 +247,7 @@ def resolve_trend_mock_url(title: str) -> str:
             return url
     except Exception as e:
         logger.error(f"Failed resolving mock URL for trend: {title}. Error: {e}")
-    return "https://www.youtube.com/watch?v=kQD2bBnb-Yc"
+    return "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
 
 def fetch_realtime_news_context() -> str:
     import xml.etree.ElementTree as ET
