@@ -38,6 +38,7 @@ class ContextBrief(BaseModel):
     key_themes: List[str] = Field(description="List of core thematic concepts represented in the video.")
     brand_alignment: str = Field(description="How the video aligns with the brand context extracted from the URL.")
     visual_style_tags: List[str] = Field(description="Keywords describing the visual style (e.g. cinematic, cyberpunk, photorealistic, abstract).")
+    recreation_motion_prompt: str = Field(description="A detailed, optimized Text-to-Video motion prompt for Runway Gen-3 or Google Veo 3.1 to recreate the visual scene, subject, lighting, and camera movement.")
 
 class ViralConcept(BaseModel):
     platform: str = Field(description="Platform name, e.g. Reddit, YouTube, Twitter/X, LinkedIn, Instagram")
@@ -126,6 +127,7 @@ def run_multi_agent_pipeline(
         2. The key aesthetic themes.
         3. How it aligns with 6Frame Studio's high-end, cinematic, AI-generative mission.
         4. Key visual style descriptors.
+        5. A detailed, optimized Text-to-Video motion prompt (recreation_motion_prompt) for Runway Gen-3 or Google Veo 3.1 to recreate the visual scene, subject, lighting, and camera movement.
         """
 
         context_response = client.models.generate_content(
