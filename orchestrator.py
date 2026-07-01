@@ -52,9 +52,6 @@ class ViralConcept(BaseModel):
     recreated_twitter_thread: List[str] = Field(description="Staged Twitter thread copy for 6Frame Studio (2-3 tweets, under 280 chars each)")
     recreated_instagram_caption: str = Field(description="Staged Instagram caption copy for 6Frame Studio with hashtags")
     original_post_text: str = Field(description="Reconstructed or summarized text/copy of the original viral post")
-    repurposed_6frame_linkedin_post: str = Field(description="LinkedIn post copy written as 6Frame Studio analyzing/reacting to the original video, giving credit to the creator, and including a placeholder or citation of the link.")
-    repurposed_6frame_twitter_thread: List[str] = Field(description="A similar repurposed thread for Twitter/X (2-3 tweets, under 280 chars each) commenting/reacting to the original video with creator credit.")
-    repurposed_6frame_instagram_caption: str = Field(description="A repurposed Instagram caption matching the style, reacting to the video, with hashtags.")
 
 
 class ViralSearchResponse(BaseModel):
@@ -307,7 +304,7 @@ def run_live_trend_scanner(
         # Query Gemini 2.5 Flash using the fetched context (much faster than Pro, avoiding timeouts)
         client = genai.Client(
             api_key=api_key,
-            http_options=types.HttpOptions(timeout=180000) # Prevents indefinite hangs (180s safe limit)
+            http_options=types.HttpOptions(timeout=360000) # Prevents indefinite hangs (360s safe limit)
         )
         response = client.models.generate_content(
             model='gemini-2.5-flash',
@@ -333,7 +330,6 @@ def run_live_trend_scanner(
         4. Write the exact Image-to-Video motion prompt to render our adapted version.
         5. Draft the tailored social posts representing 6Frame Studio's recreation (recreated_linkedin_post, recreated_twitter_thread, recreated_instagram_caption).
         6. Draft the original_post_text summarizing/reconstructing what the original creator's post said.
-        7. Draft the repurposed copies (repurposed_6frame_linkedin_post, repurposed_6frame_twitter_thread, repurposed_6frame_instagram_caption). These must be written in the brand voice of 6Frame Studio (cinematic, refined, artistic, technical but premium) reacting to/commenting on the original video. They must explicitly credit the creator/author (by username) and direct the audience to check out the original clip (using the original URL).
 
         ### POST FORMATTING AND SPACING RULES (CRITICAL)
         - **Double Line Breaks**: You MUST separate all paragraphs, bullet point blocks, and commentary highlights with an empty line (double newlines `\n\n`). Do not write long blocks of single-spaced text.
