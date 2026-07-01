@@ -122,6 +122,8 @@ function PipelineScreen() {
   const [error, setError] = React.useState(null);
   const [tab, setTab] = React.useState('linkedin');
   const fileInputRef = React.useRef(null);
+  const [copied, setCopied] = React.useState(false);
+  const [publishing, setPublishing] = React.useState(false);
 
   async function handleFilePicked(file) {
     setPickedFile(file);
@@ -224,8 +226,31 @@ function PipelineScreen() {
                   {tab === 'instagram' && <Textarea rows={9} defaultValue={result.copy.instagram_caption + '\n\n' + result.copy.suggested_hashtags.map(h => '#' + h.replace(/^#/, '')).join(' ')} />}
                 </div>
                 <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                  <Button variant="secondary">Copy Post</Button>
-                  <Button variant="primary" onClick={() => apiFetch('/api/publish/' + (tab === 'twitter' ? 'twitter' : 'linkedin'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(tab === 'twitter' ? { text: result.copy.twitter_post, is_thread: false } : { text: result.copy.linkedin_post }) }).catch((e) => setError(e.message))}>Publish</Button>
+                  <Button variant="secondary" onClick={() => {
+                    const txt = tab === 'linkedin' ? result.copy.linkedin_post : tab === 'twitter' ? result.copy.twitter_thread.join('\n\n') : (result.copy.instagram_caption + '\n\n' + result.copy.suggested_hashtags.map(h => '#' + h.replace(/^#/, '')).join(' '));
+                    navigator.clipboard.writeText(txt);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  }}>{copied ? 'Copied!' : 'Copy Post'}</Button>
+                  <Button variant="primary" disabled={publishing} onClick={() => {
+                    setPublishing(true);
+                    apiFetch('/api/publish/' + (tab === 'twitter' ? 'twitter' : 'linkedin'), {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(tab === 'twitter' ? {
+                        text: result.copy.twitter_thread[0],
+                        thread: result.copy.twitter_thread,
+                        is_thread: result.copy.twitter_thread.length > 1,
+                        video_path: videoPath
+                      } : {
+                        text: result.copy.linkedin_post,
+                        video_path: videoPath
+                      })
+                    })
+                    .then((res) => alert(res.message || "Successfully published!"))
+                    .catch((e) => setError(e.message))
+                    .finally(() => setPublishing(false));
+                  }}>{publishing ? 'Publishing…' : 'Publish'}</Button>
                 </div>
               </div>
             </div>
@@ -249,6 +274,8 @@ function TrendsScreen() {
   const [active, setActive] = React.useState(null);
   const [ctab, setCtab] = React.useState('linkedin');
   const [error, setError] = React.useState(null);
+  const [copied, setCopied] = React.useState(false);
+  const [publishing, setPublishing] = React.useState(false);
 
   async function runScan() {
     setScanning(true);
@@ -317,8 +344,29 @@ function TrendsScreen() {
                     {ctab === 'instagram' && <Textarea rows={9} defaultValue={active.recreated_instagram_caption} />}
                   </div>
                   <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                    <Button variant="secondary">Copy Post</Button>
-                    <Button variant="primary">Publish</Button>
+                    <Button variant="secondary" onClick={() => {
+                      const txt = ctab === 'linkedin' ? active.recreated_linkedin_post : ctab === 'twitter' ? active.recreated_twitter_thread.join('\n\n') : active.recreated_instagram_caption;
+                      navigator.clipboard.writeText(txt);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1500);
+                    }}>{copied ? 'Copied!' : 'Copy Post'}</Button>
+                    <Button variant="primary" disabled={publishing} onClick={() => {
+                      setPublishing(true);
+                      apiFetch('/api/publish/' + (ctab === 'twitter' ? 'twitter' : 'linkedin'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(ctab === 'twitter' ? {
+                          text: active.recreated_twitter_thread[0],
+                          thread: active.recreated_twitter_thread,
+                          is_thread: active.recreated_twitter_thread.length > 1
+                        } : {
+                          text: active.recreated_linkedin_post
+                        })
+                      })
+                      .then((res) => alert(res.message || "Successfully published!"))
+                      .catch((e) => setError(e.message))
+                      .finally(() => setPublishing(false));
+                    }}>{publishing ? 'Publishing…' : 'Publish'}</Button>
                   </div>
                 </div>
               </div>
@@ -341,6 +389,8 @@ function RepurposerScreen() {
   const [videoPath, setVideoPath] = React.useState(null);
   const [tab, setTab] = React.useState('linkedin');
   const [error, setError] = React.useState(null);
+  const [copied, setCopied] = React.useState(false);
+  const [publishing, setPublishing] = React.useState(false);
 
   async function run() {
     setRunning(true);
@@ -405,8 +455,31 @@ function RepurposerScreen() {
                   {tab === 'instagram' && <Textarea rows={9} defaultValue={copy.repurposed_instagram_caption} />}
                 </div>
                 <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                  <Button variant="secondary">Copy Post</Button>
-                  <Button variant="primary" disabled={!videoPath}>Publish</Button>
+                  <Button variant="secondary" onClick={() => {
+                    const txt = tab === 'linkedin' ? copy.repurposed_linkedin_post : tab === 'twitter' ? copy.repurposed_twitter_thread.join('\n\n') : copy.repurposed_instagram_caption;
+                    navigator.clipboard.writeText(txt);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  }}>{copied ? 'Copied!' : 'Copy Post'}</Button>
+                  <Button variant="primary" disabled={!videoPath || publishing} onClick={() => {
+                    setPublishing(true);
+                    apiFetch('/api/publish/' + (tab === 'twitter' ? 'twitter' : 'linkedin'), {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(tab === 'twitter' ? {
+                        text: copy.repurposed_twitter_thread[0],
+                        thread: copy.repurposed_twitter_thread,
+                        is_thread: copy.repurposed_twitter_thread.length > 1,
+                        video_path: videoPath
+                      } : {
+                        text: copy.repurposed_linkedin_post,
+                        video_path: videoPath
+                      })
+                    })
+                    .then((res) => alert(res.message || "Successfully published!"))
+                    .catch((e) => setError(e.message))
+                    .finally(() => setPublishing(false));
+                  }}>{publishing ? 'Publishing…' : 'Publish'}</Button>
                 </div>
               </div>
             </div>
@@ -447,6 +520,15 @@ function CockpitScreen() {
   async function runAutopilotNow() {
     try {
       await apiFetch('/api/trigger-autopilot', { method: 'POST' });
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  async function deleteQueueItem(post_id) {
+    try {
+      await apiFetch('/api/scheduled-queue/' + post_id, { method: 'DELETE' });
+      setQueue(queue.filter(p => p.id !== post_id));
     } catch (e) {
       setError(e.message);
     }
@@ -506,7 +588,10 @@ function CockpitScreen() {
                   {queue.map((p) => (
                     <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '0.75rem' }}>
                       <span style={{ fontSize: '0.85rem' }}>{p.campaign_title}</span>
-                      <Badge tone={p.status === 'SUCCESS' ? 'success' : p.status === 'FAILED' ? 'error' : 'primary'} style={{ fontSize: '0.6rem' }}>{p.status}</Badge>
+                      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                        <Badge tone={p.status === 'SUCCESS' ? 'success' : p.status === 'FAILED' ? 'error' : 'primary'} style={{ fontSize: '0.6rem' }}>{p.status}</Badge>
+                        <button onClick={() => deleteQueueItem(p.id)} style={{ background: 'none', border: 'none', color: 'var(--error-color)', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, textDecoration: 'underline' }}>Delete</button>
+                      </div>
                     </div>
                   ))}
                 </div>
