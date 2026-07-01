@@ -94,10 +94,10 @@ const NAV_ITEMS = [
 function Header({ view, onNavigate }) {
   return (
     <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 3rem', borderBottom: '1px solid var(--border-color)', background: 'rgba(10, 10, 12, 0.6)', backdropFilter: 'var(--blur-header)', position: 'sticky', top: 0, zIndex: 10 }}>
-      <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.6rem', letterSpacing: '0.1em' }}>
+      <a href="/" style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.6rem', letterSpacing: '0.1em', cursor: 'pointer', textDecoration: 'none', color: 'inherit' }}>
         <span style={{ background: 'var(--primary-grad)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', marginRight: 2 }}>Trend</span>
         PILOT <span style={{ fontWeight: 400, fontSize: '0.95rem', color: 'var(--text-secondary)' }}>AI</span>
-      </div>
+      </a>
       <Tabs variant="nav" items={NAV_ITEMS} active={view} onChange={onNavigate} />
       <Badge tone="primary" style={{ fontSize: '0.65rem' }}>LIVE API</Badge>
     </header>
