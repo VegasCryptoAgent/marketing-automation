@@ -29,6 +29,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const trialBtn = document.getElementById("landing-trial-btn");
     const startAppTriggers = document.querySelectorAll(".start-app-trigger");
     const logoutTrigger = document.getElementById("profile-logout-trigger");
+    const sidebarLogoBtn = document.getElementById("sidebar-logo-btn");
 
     // Elements - Dashboard View
     const dashboardTrendsContainer = document.getElementById("dashboard-trends-container");
@@ -132,6 +133,12 @@ document.addEventListener("DOMContentLoaded", () => {
     trialBtn.addEventListener("click", loginUser);
     startAppTriggers.forEach(btn => btn.addEventListener("click", loginUser));
     logoutTrigger.addEventListener("click", logoutUser);
+    if (sidebarLogoBtn) {
+        sidebarLogoBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            logoutUser();
+        });
+    }
 
     // Sidebar navigation trigger handler
     menuItems.forEach(item => {
