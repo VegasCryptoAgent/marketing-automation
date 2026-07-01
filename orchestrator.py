@@ -90,7 +90,10 @@ def run_multi_agent_pipeline(
 
         # Initialize GenAI client
         update_job_status(job_id, "PROCESSING", 10, "Initializing Gemini Client...")
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=180000)
+        )
 
         # Step 1: Upload Video file to Gemini File API
         update_job_status(job_id, "PROCESSING", 20, "Uploading video to Gemini API (this may take a minute for larger files)...")
@@ -304,7 +307,7 @@ def run_live_trend_scanner(
         # Query Gemini 2.5 Flash using the fetched context (much faster than Pro, avoiding timeouts)
         client = genai.Client(
             api_key=api_key,
-            http_options=types.HttpOptions(timeout=60000) # Prevents indefinite hangs
+            http_options=types.HttpOptions(timeout=180000) # Prevents indefinite hangs (180s safe limit)
         )
         response = client.models.generate_content(
             model='gemini-2.5-flash',
@@ -626,7 +629,10 @@ def run_video_generation(
             return
 
         update_job_status(job_id, "PROCESSING", 10, "Initializing Gemini Client...")
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=180000)
+        )
 
         update_job_status(job_id, "PROCESSING", 25, "Submitting video generation request to Google Veo 3.1...")
         
@@ -742,7 +748,10 @@ def repurpose_video_link_copy(url: str, settings: Dict[str, Any]) -> RepurposedC
     if not api_key:
         raise ValueError("Missing Gemini API Key. Please configure it in Settings.")
         
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=180000)
+    )
     brand_voice = settings.get("brand_voice", "")
     
     # Phase 1: Search grounding to find metadata for this specific URL
@@ -758,14 +767,24 @@ def repurpose_video_link_copy(url: str, settings: Dict[str, Any]) -> RepurposedC
     5. The main visual concept, technique, or content of the video.
     """
     
-    search_res = client.models.generate_content(
-        model='gemini-2.5-pro',
-        contents=search_prompt,
-        config=types.GenerateContentConfig(
-            tools=[types.Tool(google_search=types.GoogleSearch())],
-            system_instruction="You are a social media research assistant specialized in finding information about links."
+    try:
+        search_res = client.models.generate_content(
+            model='gemini-2.5-pro',
+            contents=search_prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                system_instruction="You are a social media research assistant specialized in finding information about links."
+            )
         )
-    )
+    except Exception as e:
+        logger.warning(f"Google Search grounding failed inside repurposer: {e}. Falling back to standard generation.")
+        search_res = client.models.generate_content(
+            model='gemini-2.5-pro',
+            contents=search_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction="You are a social media research assistant specialized in finding information about links."
+            )
+        )
     
     # Phase 2: Structure and draft repurposed copies using Gemini 2.5 Pro JSON schema
     adaptation_prompt = f"""
