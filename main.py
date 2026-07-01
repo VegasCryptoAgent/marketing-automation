@@ -1118,4 +1118,12 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), na
 
 @app.get("/")
 def read_root():
+    return FileResponse(os.path.join(BASE_DIR, "static", "website.html"))
+
+@app.get("/dashboard/index.html")
+def read_dashboard_html():
+    return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
+
+@app.get("/dashboard")
+def read_dashboard():
     return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
