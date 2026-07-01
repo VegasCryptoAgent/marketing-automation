@@ -301,13 +301,13 @@ def run_live_trend_scanner(
         6. A description of the visual style and why it went viral
         """
 
-        # Query Gemini 2.5 Pro using the fetched context
+        # Query Gemini 2.5 Flash using the fetched context (much faster than Pro, avoiding timeouts)
         client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(timeout=60000) # Prevents indefinite hangs
         )
         response = client.models.generate_content(
-            model='gemini-2.5-pro',
+            model='gemini-2.5-flash',
             contents=search_prompt,
             config=types.GenerateContentConfig(
                 system_instruction="You are a real-time social media trend researcher specialized in finding trending cinematic AI contents."
@@ -341,9 +341,9 @@ def run_live_trend_scanner(
         Return the results matching the required JSON schema structure.
         """
 
-        # Step 2: Structure as JSON using Gemini 2.5 Pro
+        # Step 2: Structure as JSON using Gemini 2.5 Flash
         copy_response = client.models.generate_content(
-            model='gemini-2.5-pro',
+            model='gemini-2.5-flash',
             contents=adaptation_prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
