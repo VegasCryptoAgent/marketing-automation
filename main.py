@@ -317,7 +317,7 @@ def start_viral_search(background_tasks: BackgroundTasks):
 def get_viral_status(job_id: str):
     return get_job_status(job_id)
 
-def ensure_video_under_limit(video_path: str, max_duration_sec: int = 120) -> str:
+def ensure_video_under_limit(video_path: str, max_duration_sec: int = 90) -> str:
     """ Checks video duration and returns a trimmed path if it exceeds limit. """
     import subprocess
     import os
@@ -440,7 +440,8 @@ def publish_linkedin(req: PublishLinkedinRequest):
 
         asset_urn = None
         if req.video_path:
-            asset_urn = upload_video_to_linkedin(req.video_path, author_urn, settings)
+            verified_video = ensure_video_under_limit(req.video_path, max_duration_sec=90)
+            asset_urn = upload_video_to_linkedin(verified_video, author_urn, settings)
 
         if asset_urn:
             payload = {
@@ -638,6 +639,9 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
                     os.remove(downloaded_file)
                 downloaded_file = target_path
                 
+            # Trim downloaded video to 90 seconds max
+            downloaded_file = ensure_video_under_limit(downloaded_file, max_duration_sec=90)
+            
             web_path = f"/static/assets/generated/{os.path.basename(downloaded_file)}"
             update_job_status(job_id, "SUCCESS", 100, "Original video loaded successfully!", result={"video_path": web_path})
         except asyncio.TimeoutError:
@@ -721,7 +725,8 @@ async def execute_scheduled_post(post: dict):
                 
                 media_ids = None
                 if post.get("video_path"):
-                    media_id = upload_video_to_twitter(post["video_path"], settings)
+                    verified_video = ensure_video_under_limit(post["video_path"], max_duration_sec=90)
+                    media_id = upload_video_to_twitter(verified_video, settings)
                     if media_id:
                         media_ids = [media_id]
                 
@@ -763,7 +768,8 @@ async def execute_scheduled_post(post: dict):
                 
                 asset_urn = None
                 if post.get("video_path"):
-                    asset_urn = upload_video_to_linkedin(post["video_path"], author_urn, settings)
+                    verified_video = ensure_video_under_limit(post["video_path"], max_duration_sec=90)
+                    asset_urn = upload_video_to_linkedin(verified_video, author_urn, settings)
                 
                 if asset_urn:
                     payload = {
@@ -905,7 +911,8 @@ async def execute_autonomous_autopost(settings: dict):
                 
                 media_ids = None
                 if generated_video_path:
-                    media_id = upload_video_to_twitter(generated_video_path, settings)
+                    verified_video = ensure_video_under_limit(generated_video_path, max_duration_sec=90)
+                    media_id = upload_video_to_twitter(verified_video, settings)
                     if media_id:
                         media_ids = [media_id]
                 
@@ -948,7 +955,8 @@ async def execute_autonomous_autopost(settings: dict):
                 
                 asset_urn = None
                 if generated_video_path:
-                    asset_urn = upload_video_to_linkedin(generated_video_path, author_urn, settings)
+                    verified_video = ensure_video_under_limit(generated_video_path, max_duration_sec=90)
+                    asset_urn = upload_video_to_linkedin(verified_video, author_urn, settings)
                 
                 if asset_urn:
                     payload = {
