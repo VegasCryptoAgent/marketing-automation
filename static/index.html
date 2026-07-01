@@ -48,7 +48,7 @@ async function apiFetch(path, options) {
   return res.json();
 }
 
-async function pollJob(statusPath, jobId, onTick, { intervalMs = 1800, timeoutMs = 180000 } = {}) {
+async function pollJob(statusPath, jobId, onTick, { intervalMs = 1800, timeoutMs = 360000 } = {}) {
   const started = Date.now();
   while (true) {
     const data = await apiFetch(`${statusPath}/${jobId}`);
@@ -124,7 +124,7 @@ function PipelineScreen() {
   const fileInputRef = React.useRef(null);
   const [copied, setCopied] = React.useState(false);
   const [publishing, setPublishing] = React.useState(false);
-  const [renderEngine, setRenderEngine] = React.useState('google_veo');
+  const [renderEngine, setRenderEngine] = React.useState('google_omni');
   const [renderDuration, setRenderDuration] = React.useState('5');
   const [renderStatus, setRenderStatus] = React.useState(null);
   const [renderedVideo, setRenderedVideo] = React.useState(null);
@@ -270,6 +270,7 @@ function PipelineScreen() {
                         <div>
                           <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.2rem' }}>AI Render Engine</label>
                           <select value={renderEngine} onChange={(e) => setRenderEngine(e.target.value)} style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: 4, padding: '0.25rem 0.4rem', fontSize: '0.7rem', width: '100%' }}>
+                            <option value="google_omni">Google Omni Video</option>
                             <option value="google_veo">Google Veo 3.1</option>
                             <option value="runway_gen3">Runway Gen-3</option>
                           </select>
@@ -346,7 +347,7 @@ function TrendsScreen() {
   const [error, setError] = React.useState(null);
   const [copied, setCopied] = React.useState(false);
   const [publishing, setPublishing] = React.useState(false);
-  const [renderEngine, setRenderEngine] = React.useState('google_veo');
+  const [renderEngine, setRenderEngine] = React.useState('google_omni');
   const [renderDuration, setRenderDuration] = React.useState('5');
   const [renderStatus, setRenderStatus] = React.useState(null);
   const [renderedVideos, setRenderedVideos] = React.useState({});
@@ -455,8 +456,9 @@ function TrendsScreen() {
                       <div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
                           <div>
-                            <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.2' }}>AI Render Engine</label>
+                            <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.2rem' }}>AI Render Engine</label>
                             <select value={renderEngine} onChange={(e) => setRenderEngine(e.target.value)} style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: 4, padding: '0.25rem 0.4rem', fontSize: '0.7rem', width: '100%' }}>
+                              <option value="google_omni">Google Omni Video</option>
                               <option value="google_veo">Google Veo 3.1</option>
                               <option value="runway_gen3">Runway Gen-3</option>
                             </select>
