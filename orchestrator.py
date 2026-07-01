@@ -247,6 +247,26 @@ def resolve_trend_mock_url(title: str) -> str:
         logger.error(f"Failed resolving mock URL for trend: {title}. Error: {e}")
     return "https://www.youtube.com/watch?v=kQD2bBnb-Yc"
 
+def fetch_realtime_news_context() -> str:
+    import xml.etree.ElementTree as ET
+    import requests
+    url = "https://news.google.com/rss/search?q=AI+filmmaking+OR+AI+video+OR+Sora+OR+Runway+Gen-3+OR+Veo+OR+Kling&hl=en-US&gl=US&ceid=US:en"
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            root = ET.fromstring(res.content)
+            items = root.findall(".//item")
+            lines = []
+            for item in items[:15]:
+                title = item.find("title").text
+                link = item.find("link").text
+                pub_date = item.find("pubDate").text
+                lines.append(f"- Title: {title}\n  Published: {pub_date}\n  URL: {link}")
+            return "\n".join(lines)
+    except Exception as e:
+        logger.error(f"Error fetching Google News context: {e}")
+    return ""
+
 def run_live_trend_scanner(
     job_id: str,
     settings: Dict[str, Any]
@@ -257,35 +277,39 @@ def run_live_trend_scanner(
             update_job_status(job_id, "FAILED", 0, "Missing Gemini API Key. Please configure it in Settings.")
             return
 
-        update_job_status(job_id, "PROCESSING", 10, "Initializing Gemini Client...")
-        client = genai.Client(api_key=api_key)
+        update_job_status(job_id, "PROCESSING", 10, "Fetching real-time social trends and AI news feeds...")
+        news_context = fetch_realtime_news_context()
 
-        update_job_status(job_id, "PROCESSING", 25, "Searching Reddit, Twitter/X, YouTube, LinkedIn, and Instagram via Google Grounding (last 24 hours)...")
+        update_job_status(job_id, "PROCESSING", 30, "Analyzing social trends context via Gemini Pro...")
         
-        search_prompt = """
-        Your task is to search across Reddit (specifically r/aivideo, r/midjourney, r/StableDiffusion), YouTube, and public social channels for the top 10 most viral or trending AI video clips posted within the last 24 hours.
-        Focus specifically on videos in similar categories and genres to 6Frame Studio's content:
+        search_prompt = f"""
+        Analyze the following real-time AI news and viral social media trends context from the last 24 hours:
+
+        {news_context}
+
+        Based on this context, identify 10 highly viral or trending AI video concepts and stories. Focus specifically on categories related to 6Frame Studio's niche:
         - AI filmmaking and cinematic AI trailers (e.g. Sora, Runway Gen-3, Kling, Luma, Veo)
         - AI logo animations, visual loops, and motion design
         - AI music videos and audio-visual experiments
 
-        To ensure video files can be downloaded successfully, you MUST prioritize finding and returning verified YouTube watch links (e.g., https://www.youtube.com/watch?v=...) or public Reddit post links. Avoid Twitter/X or TikTok links as they require logins and block scraping tools.
-        
-        Identify these 10 trending videos. For each video found, describe:
-        1. The platform where it was found
-        2. The direct video HTTP/HTTPS URL. This URL MUST be real, active, and publicly accessible. Do NOT generate mock usernames, fake IDs, or placeholder URLs (such as 'examplecyber', 'abcdef', 'status/12345'). If you cannot find a verified link for a trend, search YouTube for a real video matching the trend and return its watch link instead.
+        For each of the 10 trends identified, describe:
+        1. The platform where it was found (Reddit, YouTube, or public news)
+        2. The direct URL from the context or a related watch link. This URL MUST be a real, valid watch URL from the context. Do NOT generate mock usernames or placeholder links (like 'examplecyber', 'status/12345').
         3. The author or creator's username
         4. The title/description of the video
-        5. Viral metrics (views/likes/retweets/comments/upvotes)
+        5. Viral metrics (views, upvotes, or comments)
         6. A description of the visual style and why it went viral
         """
 
-        # Step 1: Run Search Grounding without schema limits (Gemini 2.5 Pro)
+        # Query Gemini 2.5 Pro using the fetched context
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=60000) # Prevents indefinite hangs
+        )
         response = client.models.generate_content(
             model='gemini-2.5-pro',
             contents=search_prompt,
             config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
                 system_instruction="You are a real-time social media trend researcher specialized in finding trending cinematic AI contents."
             )
         )
