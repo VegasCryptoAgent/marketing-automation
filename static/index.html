@@ -39,74 +39,159 @@
 
         <section class="landing-hero">
             <div class="hero-left">
-                <span class="badge" style="background: rgba(124, 58, 237, 0.15); color: var(--purple-light); font-size: 0.75rem; padding: 0.35rem 0.75rem; border-radius: 20px; font-weight: 600; text-transform: uppercase; margin-bottom: 1rem; display: inline-block;">AI-Powered Social Autopilot</span>
-                <h1>Find it first.<br>Create it.<br>Post it first.</h1>
-                <p>TrendPilot AI scans, creates, and autopublishes viral AI video content across all major platforms. Never miss a trend, dominate the feed, and scale your audience automatically.</p>
-                <div class="hero-actions">
-                    <button class="btn btn-primary start-app-trigger">Start Free Trial &rarr;</button>
-                    <button class="btn btn-secondary" onclick="document.getElementById('how-it-works').scrollIntoView({behavior: 'smooth'})">Watch Demo</button>
+                <span class="badge" style="background: rgba(124, 58, 237, 0.1); color: var(--purple-light); border: 1px solid rgba(124, 58, 237, 0.2); font-size: 0.75rem; padding: 0.35rem 0.8rem; border-radius: 20px; font-weight: 600; text-transform: uppercase; margin-bottom: 1.25rem; display: inline-block;">AI-Powered Social Autopilot</span>
+                <h1 style="font-family: 'Outfit', sans-serif; font-size: 3.8rem; font-weight: 800; line-height: 1.1; margin-bottom: 1.5rem; letter-spacing: -1px;">Find it first.<br><span style="background: linear-gradient(135deg, #a78bfa 0%, #3b82f6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Create it.</span><br>Post it first.</h1>
+                <p style="font-size: 1.05rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 2.2rem; max-width: 500px;">TrendPilot AI scans, creates, and autopublishes viral AI video content across all major platforms. Never miss a trend, dominate the feed, and scale your audience automatically.</p>
+                <div class="hero-actions" style="margin-bottom: 2.5rem;">
+                    <button class="btn btn-primary start-app-trigger" style="padding: 0.8rem 1.8rem; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <span>Start Free Trial</span>
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                    </button>
+                    <button class="btn btn-secondary start-app-trigger" style="padding: 0.8rem 1.8rem; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        <span>Watch Demo</span>
+                    </button>
+                </div>
+
+                <!-- Trust Avatars (Image 4 Hero left) -->
+                <div class="trusted-by" style="display: flex; align-items: center; gap: 0.85rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 1.5rem; max-width: 450px;">
+                    <div class="avatar-stack" style="display: flex; align-items: center;">
+                        <span class="avatar-img" style="background-image: url('https://randomuser.me/api/portraits/women/32.jpg'); width: 32px; height: 32px; border-radius: 50%; border: 2px solid #030611; margin-right: -10px; background-size: cover; background-position: center; display: inline-block;"></span>
+                        <span class="avatar-img" style="background-image: url('https://randomuser.me/api/portraits/men/46.jpg'); width: 32px; height: 32px; border-radius: 50%; border: 2px solid #030611; margin-right: -10px; background-size: cover; background-position: center; display: inline-block;"></span>
+                        <span class="avatar-img" style="background-image: url('https://randomuser.me/api/portraits/women/65.jpg'); width: 32px; height: 32px; border-radius: 50%; border: 2px solid #030611; margin-right: -10px; background-size: cover; background-position: center; display: inline-block;"></span>
+                        <span class="avatar-img" style="background-image: url('https://randomuser.me/api/portraits/men/22.jpg'); width: 32px; height: 32px; border-radius: 50%; border: 2px solid #030611; background-size: cover; background-position: center; display: inline-block;"></span>
+                    </div>
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 500;">Trusted by 3,500+ creators and studios</span>
                 </div>
             </div>
             
-            <div class="landing-mockup">
+            <div class="landing-mockup" style="background: rgba(13, 18, 35, 0.45); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.5rem; backdrop-filter: blur(20px); box-shadow: 0 30px 60px rgba(0,0,0,0.6);">
                 <!-- Mockup of the live trend feed (Image 4 Hero right panel preview) -->
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; font-size: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
-                    <span style="font-weight: 700; color: #fff;">Live Trend Feed <span style="color: #10b981; font-size: 0.7rem;">&bull; Live</span></span>
-                    <span style="color: var(--text-secondary);">View all trends &rarr;</span>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; font-size: 0.825rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.65rem;">
+                    <span style="font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
+                        <span>Live Trend Feed</span>
+                        <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green-primary); box-shadow: 0 0 8px var(--green-primary);"></span>
+                        <span style="color: var(--green-primary); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Live</span>
+                    </span>
+                    <span style="color: var(--purple-light); font-weight: 600; cursor: pointer;" class="start-app-trigger">View all trends &rarr;</span>
                 </div>
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; margin-bottom: 1.2rem;">
-                    <div style="background: rgba(0,0,0,0.25); border-radius: 6px; padding: 0.5rem; border: 1px solid rgba(255,255,255,0.05); font-size: 0.7rem;">
-                        <div style="background: #333; aspect-ratio: 16/10; border-radius: 4px; margin-bottom: 0.4rem; position: relative;">
-                            <span style="position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.8); padding: 0.1rem 0.2rem; border-radius: 2px; font-size: 0.55rem;">0:48</span>
+
+                <!-- 4 cards grid matching Image 4 -->
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.85rem; margin-bottom: 1.5rem;">
+                    <!-- Card 1 -->
+                    <div style="background: rgba(0,0,0,0.25); border-radius: var(--radius-md); padding: 0.6rem; border: 1px solid rgba(255,255,255,0.05); font-size: 0.75rem; text-align: left;">
+                        <div style="background: linear-gradient(135deg, #FF4500 0%, #1e1b4b 100%); aspect-ratio: 16/10; border-radius: var(--radius-sm); margin-bottom: 0.5rem; position: relative;">
+                            <span style="position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.85); padding: 0.15rem 0.3rem; border-radius: 4px; font-size: 0.6rem; font-weight: bold;">0:48</span>
                         </div>
-                        <span style="font-weight: 700; color: #fff; display: block; margin-bottom: 0.15rem;">AI Robot Bartender Goes Viral</span>
-                        <span style="color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">r/ArtificialIntelligence</span>
-                        <span style="color: var(--green-primary); font-weight: 600;">&bull; Trending now</span>
+                        <span style="font-weight: 700; color: #fff; display: block; margin-bottom: 0.15rem; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">AI Robot Bartender Goes Viral</span>
+                        <span style="color: var(--text-secondary); display: block; margin-bottom: 0.5rem; font-size: 0.7rem;">r/ArtificialIntelligence</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.65rem;">
+                            <span style="color: var(--green-primary); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+                                <span style="display:inline-block; width:4px; height:4px; border-radius:50%; background: var(--green-primary);"></span>
+                                Trending now
+                            </span>
+                            <span style="color: var(--text-secondary);">2.3k upvotes</span>
+                        </div>
                     </div>
-                    <div style="background: rgba(0,0,0,0.25); border-radius: 6px; padding: 0.5rem; border: 1px solid rgba(255,255,255,0.05); font-size: 0.7rem;">
-                        <div style="background: #333; aspect-ratio: 16/10; border-radius: 4px; margin-bottom: 0.4rem; position: relative;">
-                            <span style="position: absolute; bottom: 4px; right: 4px; background: rgba(0,0,0,0.8); padding: 0.1rem 0.2rem; border-radius: 2px; font-size: 0.55rem;">1:12</span>
+
+                    <!-- Card 2 -->
+                    <div style="background: rgba(0,0,0,0.25); border-radius: var(--radius-md); padding: 0.6rem; border: 1px solid rgba(255,255,255,0.05); font-size: 0.75rem; text-align: left;">
+                        <div style="background: linear-gradient(135deg, #FF0000 0%, #1e1b4b 100%); aspect-ratio: 16/10; border-radius: var(--radius-sm); margin-bottom: 0.5rem; position: relative;">
+                            <span style="position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.85); padding: 0.15rem 0.3rem; border-radius: 4px; font-size: 0.6rem; font-weight: bold;">1:12</span>
                         </div>
-                        <span style="font-weight: 700; color: #fff; display: block; margin-bottom: 0.15rem;">NASA AI Trailer Is Insane</span>
-                        <span style="color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">YouTube &bull; Corridor Crew</span>
-                        <span style="color: var(--green-primary); font-weight: 600;">&bull; Trending now</span>
+                        <span style="font-weight: 700; color: #fff; display: block; margin-bottom: 0.15rem; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">NASA AI Trailer Is Insane</span>
+                        <span style="color: var(--text-secondary); display: block; margin-bottom: 0.5rem; font-size: 0.7rem;">YouTube &bull; Corridor Crew</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.65rem;">
+                            <span style="color: var(--green-primary); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+                                <span style="display:inline-block; width:4px; height:4px; border-radius:50%; background: var(--green-primary);"></span>
+                                Trending now
+                            </span>
+                            <span style="color: var(--text-secondary);">1.8M views</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 3 -->
+                    <div style="background: rgba(0,0,0,0.25); border-radius: var(--radius-md); padding: 0.6rem; border: 1px solid rgba(255,255,255,0.05); font-size: 0.75rem; text-align: left;">
+                        <div style="background: linear-gradient(135deg, #3b82f6 0%, #1e1b4b 100%); aspect-ratio: 16/10; border-radius: var(--radius-sm); margin-bottom: 0.5rem; position: relative;">
+                            <span style="position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.85); padding: 0.15rem 0.3rem; border-radius: 4px; font-size: 0.6rem; font-weight: bold;">0:35</span>
+                        </div>
+                        <span style="font-weight: 700; color: #fff; display: block; margin-bottom: 0.15rem; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Cinematic AI Short Film Stuns Viewers</span>
+                        <span style="color: var(--text-secondary); display: block; margin-bottom: 0.5rem; font-size: 0.7rem;">@ai_obsession</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.65rem;">
+                            <span style="color: var(--green-primary); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+                                <span style="display:inline-block; width:4px; height:4px; border-radius:50%; background: var(--green-primary);"></span>
+                                Trending now
+                            </span>
+                            <span style="color: var(--text-secondary);">89K views</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 4 -->
+                    <div style="background: rgba(0,0,0,0.25); border-radius: var(--radius-md); padding: 0.6rem; border: 1px solid rgba(255,255,255,0.05); font-size: 0.75rem; text-align: left;">
+                        <div style="background: linear-gradient(135deg, #ec4899 0%, #1e1b4b 100%); aspect-ratio: 16/10; border-radius: var(--radius-sm); margin-bottom: 0.5rem; position: relative;">
+                            <span style="position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.85); padding: 0.15rem 0.3rem; border-radius: 4px; font-size: 0.6rem; font-weight: bold;">0:25</span>
+                        </div>
+                        <span style="font-weight: 700; color: #fff; display: block; margin-bottom: 0.15rem; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">This AI Dog Video Is Everything</span>
+                        <span style="color: var(--text-secondary); display: block; margin-bottom: 0.5rem; font-size: 0.7rem;">Future Tools</span>
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.65rem;">
+                            <span style="color: var(--green-primary); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+                                <span style="display:inline-block; width:4px; height:4px; border-radius:50%; background: var(--green-primary);"></span>
+                                Trending now
+                            </span>
+                            <span style="color: var(--text-secondary);">987 views</span>
+                        </div>
                     </div>
                 </div>
-                <!-- Mockup Today's Pipeline metrics -->
-                <div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.8rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; text-align: center;">
-                    <div style="background: rgba(0,0,0,0.2); padding: 0.5rem; border-radius: 4px;">
-                        <span style="font-size: 0.55rem; color: var(--text-secondary); display: block; text-transform: uppercase;">Trends Found</span>
-                        <span style="font-family: 'Outfit', sans-serif; font-size: 0.95rem; font-weight: 800; color: #fff;">128</span>
+
+                <!-- Mockup Today's Pipeline metrics (Image 4 bottom grid showing 6 items) -->
+                <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.65rem; text-align: center;">
+                    <div style="background: rgba(0,0,0,0.2); padding: 0.6rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                        <span style="font-size: 0.55rem; color: var(--text-secondary); display: block; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Trends Found</span>
+                        <span style="font-family: 'Outfit', sans-serif; font-size: 1.15rem; font-weight: 800; color: #fff; margin-top: 0.15rem; display: block;">128</span>
                     </div>
-                    <div style="background: rgba(0,0,0,0.2); padding: 0.5rem; border-radius: 4px;">
-                        <span style="font-size: 0.55rem; color: var(--text-secondary); display: block; text-transform: uppercase;">Videos Downloaded</span>
-                        <span style="font-family: 'Outfit', sans-serif; font-size: 0.95rem; font-weight: 800; color: #fff;">24</span>
+                    <div style="background: rgba(0,0,0,0.2); padding: 0.6rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                        <span style="font-size: 0.55rem; color: var(--text-secondary); display: block; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Downloaded</span>
+                        <span style="font-family: 'Outfit', sans-serif; font-size: 1.15rem; font-weight: 800; color: #fff; margin-top: 0.15rem; display: block;">24</span>
                     </div>
-                    <div style="background: rgba(0,0,0,0.2); padding: 0.5rem; border-radius: 4px;">
-                        <span style="font-size: 0.55rem; color: var(--text-secondary); display: block; text-transform: uppercase;">Engagement</span>
-                        <span style="font-family: 'Outfit', sans-serif; font-size: 0.95rem; font-weight: 800; color: #fff;">1.2K</span>
+                    <div style="background: rgba(0,0,0,0.2); padding: 0.6rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                        <span style="font-size: 0.55rem; color: var(--text-secondary); display: block; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Trimmed</span>
+                        <span style="font-family: 'Outfit', sans-serif; font-size: 1.15rem; font-weight: 800; color: #fff; margin-top: 0.15rem; display: block;">18</span>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.2); padding: 0.6rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                        <span style="font-size: 0.55rem; color: var(--text-secondary); display: block; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Scheduled</span>
+                        <span style="font-family: 'Outfit', sans-serif; font-size: 1.15rem; font-weight: 800; color: #fff; margin-top: 0.15rem; display: block;">7</span>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.2); padding: 0.6rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                        <span style="font-size: 0.55rem; color: var(--text-secondary); display: block; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Published</span>
+                        <span style="font-family: 'Outfit', sans-serif; font-size: 1.15rem; font-weight: 800; color: #fff; margin-top: 0.15rem; display: block;">5</span>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.2); padding: 0.6rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                        <span style="font-size: 0.55rem; color: var(--text-secondary); display: block; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Engagement</span>
+                        <span style="font-family: 'Outfit', sans-serif; font-size: 1.15rem; font-weight: 800; color: #fff; margin-top: 0.15rem; display: block;">1.2K</span>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- Feature List 01-06 -->
+        <!-- Feature List 01-06 (Centred Layout matching Image 4) -->
         <section id="features-anchor" class="landing-section" style="border-top: 1px solid rgba(255,255,255,0.03);">
-            <div class="section-label">Everything You Need</div>
-            <div class="section-title">The All-In-One AI Content Engine</div>
+            <div class="section-label" style="text-align: center; color: var(--purple-light); font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 0.5rem;">EVERYTHING YOU NEED</div>
+            <div class="section-title" style="text-align: center; font-family: 'Outfit', sans-serif; font-size: 2.4rem; font-weight: 800; margin-bottom: 0.5rem;">The All-In-One <span style="background: linear-gradient(135deg, #3b82f6 0%, #7c3aed 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">AI Content Engine</span></div>
+            <p style="text-align: center; color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 4rem;">From discovery to autopilot. We handle it all.</p>
             
-            <div class="engine-timeline">
+            <div class="engine-timeline" style="display: flex; flex-direction: column; gap: 5rem;">
+                
                 <!-- 01 Real-Time Trend Scanner -->
                 <div class="timeline-item">
-                    <div class="timeline-content">
+                    <div class="timeline-content" style="text-align: left;">
                         <div class="timeline-number">01</div>
                         <h3>Real-Time Trend Scanner</h3>
                         <p>Uses Google Search Grounding to identify the most viral AI video clips from the last 24 hours (Reddit, YouTube, and more).</p>
-                        <button class="btn btn-secondary start-app-trigger">Launch Scanner &rarr;</button>
+                        <a href="#" class="feature-card-link start-app-trigger" style="color: var(--purple-light); font-weight: 600; text-decoration: none;">Learn more &rarr;</a>
                     </div>
                     <div class="timeline-graphic" style="display:flex; justify-content:center;">
-                        <!-- Mini globe graphic -->
-                        <div class="globe-core" style="width: 140px; height: 140px;">
+                        <!-- Mini globe graphic (Image 3 graphic) -->
+                        <div class="globe-core" style="width: 170px; height: 170px;">
                             <div class="globe-map"></div>
                         </div>
                     </div>
@@ -114,99 +199,216 @@
 
                 <!-- 02 Verified Video Scraper -->
                 <div class="timeline-item">
-                    <div class="timeline-graphic">
-                        <div style="background: rgba(0,0,0,0.4); padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.75rem; border: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                            <span>Scraped Video Asset</span>
-                            <span style="color: var(--green-primary); font-weight: bold;">Downloaded &check;</span>
+                    <div class="timeline-graphic" style="display: flex; flex-direction: column; gap: 0.8rem; background: rgba(13, 18, 35, 0.45); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.2rem;">
+                        <!-- Downloader card from Scraper View -->
+                        <div style="font-size: 0.75rem; color: #fff; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.4rem; display: flex; justify-content: space-between;">
+                            <span>Downloader</span>
+                            <span style="color: var(--green-primary);">Active</span>
                         </div>
-                        <div style="background: rgba(0,0,0,0.4); padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.75rem; border: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center;">
-                            <span>Link Validity Check</span>
-                            <span style="color: var(--green-primary); font-weight: bold;">Valid &check;</span>
+                        <div style="display: flex; flex-direction: column; gap: 0.45rem; font-size: 0.7rem; text-align: left;">
+                            <div style="display:flex; justify-content:space-between; color: var(--text-secondary);">
+                                <span>AI Robot Bartender Goes Viral</span>
+                                <span style="color: var(--green-primary); font-weight: 600;">Downloaded &check;</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; color: var(--text-secondary);">
+                                <span>NASA AI Trailer Is Insane</span>
+                                <span style="color: var(--green-primary); font-weight: 600;">Downloaded &check;</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; color: var(--text-secondary);">
+                                <span>This AI Dog Video Is Everything</span>
+                                <span style="color: var(--green-primary); font-weight: 600;">Downloaded &check;</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; color: var(--text-secondary);">
+                                <span>Cinematic AI Short Stuns Viewers</span>
+                                <span style="color: var(--green-primary); font-weight: 600;">Downloaded &check;</span>
+                            </div>
                         </div>
                     </div>
-                    <div class="timeline-content">
+                    <div class="timeline-content" style="text-align: left;">
                         <div class="timeline-number">02</div>
                         <h3>Verified Video Scraper</h3>
                         <p>Auto-downloads the actual video assets. If a crawled link is broken, it automatically searches YouTube using the trend's title to fetch the real video file.</p>
-                        <button class="btn btn-secondary start-app-trigger">Open Scraper &rarr;</button>
+                        <a href="#" class="feature-card-link start-app-trigger" style="color: var(--purple-light); font-weight: 600; text-decoration: none;">Learn more &rarr;</a>
                     </div>
                 </div>
 
                 <!-- 03 API Auto-Trim Guard -->
                 <div class="timeline-item">
-                    <div class="timeline-content">
+                    <div class="timeline-content" style="text-align: left;">
                         <div class="timeline-number">03</div>
                         <h3>API Auto-Trim Guard</h3>
                         <p>Automatically trims files exceeding 120 seconds using ffmpeg to prevent Twitter/X API v2 upload crashes (403 Forbidden).</p>
-                        <button class="btn btn-secondary start-app-trigger">View Trimmer &rarr;</button>
+                        <a href="#" class="feature-card-link start-app-trigger" style="color: var(--purple-light); font-weight: 600; text-decoration: none;">Learn more &rarr;</a>
                     </div>
-                    <div class="timeline-graphic">
-                        <!-- Progress bar simulation -->
-                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem; text-align: left;">Optimizing Video Duration...</div>
-                        <div style="width:100%; height: 8px; background: rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; margin-bottom: 0.25rem;">
+                    <div class="timeline-graphic" style="background: rgba(13, 18, 35, 0.45); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.2rem; text-align: left;">
+                        <!-- Trimming Video Progress card -->
+                        <div style="font-size: 0.75rem; color: #fff; font-weight: bold; margin-bottom: 0.35rem; display: flex; justify-content: space-between;">
+                            <span>Trimming Video</span>
+                            <span style="color: var(--purple-light); font-weight: 600;">120s Cap</span>
+                        </div>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.8rem;">NASA AI Trailer Is Insane.mp4</div>
+                        
+                        <!-- Purple progress bar -->
+                        <div style="width:100%; height: 6px; background: rgba(0,0,0,0.4); border-radius: 3px; overflow: hidden; margin-bottom: 0.5rem; position: relative;">
                             <div style="width: 85%; height: 100%; background: var(--primary-grad);"></div>
                         </div>
-                        <div style="font-size: 0.65rem; color: var(--green-primary); text-align: right;">Trimmed to 120s limit</div>
+                        
+                        <div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--text-secondary);">
+                            <span>Original: 03:45</span>
+                            <span style="color: var(--green-primary); font-weight: 600;">Optimized for X (Twitter) API &check;</span>
+                        </div>
                     </div>
                 </div>
 
                 <!-- 04 Clean Social Copywriter -->
                 <div class="timeline-item">
-                    <div class="timeline-graphic">
-                        <div style="background: rgba(0,0,0,0.4); padding: 1rem; border-radius: 6px; font-size: 0.75rem; border: 1px solid rgba(255,255,255,0.05); text-align: left; font-family: monospace;">
-                            <p style="color: #fff; margin-bottom: 0.5rem;">[LinkedIn Post Draft]</p>
-                            <p style="color: var(--text-secondary); line-height: 1.4;">The future is closer than you think. NASA just dropped an insane AI trailer... <br><br>Credits to @CorridorCrew</p>
+                    <div class="timeline-graphic" style="background: rgba(13, 18, 35, 0.45); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.2rem; text-align: left;">
+                        <!-- Copy Preview Mockup -->
+                        <div style="background: rgba(0,0,0,0.3); padding: 0.8rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03); font-size: 0.75rem; font-family: inherit; margin-bottom: 0.75rem; position: relative;">
+                            <span style="position: absolute; top: 8px; right: 8px; font-size: 0.55rem; background: rgba(255,255,255,0.08); padding: 0.1rem 0.25rem; border-radius: 2px;">Copy</span>
+                            <p style="color: var(--text-secondary); line-height: 1.4; margin-top: 0.25rem;">The future is closer than you think. NASA just dropped an insane AI trailer that looks straight out of a sci-fi movie. This is wild. 🚀<br><br>@CuriousRefuge</p>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <span style="font-size: 0.6rem; background: rgba(79, 70, 229, 0.15); color: #818cf8; padding: 0.2rem 0.4rem; border-radius: 4px; font-weight: bold;">LinkedIn</span>
+                            <span style="font-size: 0.6rem; background: rgba(59, 130, 246, 0.15); color: #60a5fa; padding: 0.2rem 0.4rem; border-radius: 4px; font-weight: bold;">X (Twitter)</span>
                         </div>
                     </div>
-                    <div class="timeline-content">
+                    <div class="timeline-content" style="text-align: left;">
                         <div class="timeline-number">04</div>
                         <h3>Clean Social Copywriter</h3>
                         <p>Generates refined, brand-tailored posts with clean line spacing and proper creator handles (@CuriousRefuge), outputting plain text (no raw markdown ** bold markers).</p>
-                        <button class="btn btn-secondary start-app-trigger">Write Copies &rarr;</button>
+                        <a href="#" class="feature-card-link start-app-trigger" style="color: var(--purple-light); font-weight: 600; text-decoration: none;">Learn more &rarr;</a>
                     </div>
                 </div>
 
                 <!-- 05 Runway Gen-4.5 Director -->
                 <div class="timeline-item">
-                    <div class="timeline-content">
+                    <div class="timeline-content" style="text-align: left;">
                         <div class="timeline-number">05</div>
                         <h3>Runway Gen-4.5 Director</h3>
                         <p>Renders multi-scene parallel video generation drafts and stitches clips together for your custom studio adaptations.</p>
-                        <button class="btn btn-secondary start-app-trigger">Launch Runway &rarr;</button>
+                        <a href="#" class="feature-card-link start-app-trigger" style="color: var(--purple-light); font-weight: 600; text-decoration: none;">Learn more &rarr;</a>
                     </div>
-                    <div class="timeline-graphic" style="display: flex; gap: 0.5rem; justify-content: center;">
-                        <div style="background: #333; width: 60px; aspect-ratio: 16/9; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.6rem;">Scene 1</div>
-                        <div style="background: #333; width: 60px; aspect-ratio: 16/9; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.6rem;">Scene 2</div>
-                        <div style="background: #333; width: 60px; aspect-ratio: 16/9; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 0.6rem;">Scene 3</div>
+                    <div class="timeline-graphic" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; background: rgba(13, 18, 35, 0.45); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem; position: relative;">
+                        <!-- 4 Scene thumbnails from Gen-4.5 -->
+                        <div style="background: #111; aspect-ratio: 9/16; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; justify-content: space-between; padding: 0.4rem;">
+                            <span style="font-size: 0.5rem; color: var(--text-secondary);">Scene 01</span>
+                            <span style="align-self: center; color: var(--purple-light); font-size: 0.75rem;">▶</span>
+                            <span style="font-size: 0.5rem; color: var(--green-primary);">Done</span>
+                        </div>
+                        <div style="background: #111; aspect-ratio: 9/16; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; justify-content: space-between; padding: 0.4rem;">
+                            <span style="font-size: 0.5rem; color: var(--text-secondary);">Scene 02</span>
+                            <span style="align-self: center; color: var(--purple-light); font-size: 0.75rem;">▶</span>
+                            <span style="font-size: 0.5rem; color: var(--green-primary);">Done</span>
+                        </div>
+                        <div style="background: #111; aspect-ratio: 9/16; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; justify-content: space-between; padding: 0.4rem;">
+                            <span style="font-size: 0.55rem; color: var(--text-secondary);">Scene 03</span>
+                            <span style="align-self: center; color: var(--purple-light); font-size: 0.75rem;">▶</span>
+                            <span style="font-size: 0.5rem; color: var(--green-primary);">Done</span>
+                        </div>
+                        <div style="background: #111; aspect-ratio: 9/16; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; justify-content: space-between; padding: 0.4rem;">
+                            <span style="font-size: 0.55rem; color: var(--text-secondary);">Scene 04</span>
+                            <span style="align-self: center; color: var(--purple-light); font-size: 0.75rem;">▶</span>
+                            <span style="font-size: 0.5rem; color: var(--green-primary);">Done</span>
+                        </div>
+                        
+                        <!-- Audio tracks graphic under cards -->
+                        <div style="grid-column: span 4; display: flex; gap: 2px; align-items: center; justify-content: center; height: 10px; margin-top: 0.5rem;">
+                            <span style="height: 4px; width: 3px; background: var(--purple-light); border-radius: 1px;"></span>
+                            <span style="height: 8px; width: 3px; background: var(--purple-light); border-radius: 1px;"></span>
+                            <span style="height: 10px; width: 3px; background: var(--purple-light); border-radius: 1px;"></span>
+                            <span style="height: 6px; width: 3px; background: var(--purple-light); border-radius: 1px;"></span>
+                            <span style="height: 4px; width: 3px; background: var(--purple-light); border-radius: 1px;"></span>
+                        </div>
                     </div>
                 </div>
 
                 <!-- 06 Autopilot & Scheduler -->
                 <div class="timeline-item">
-                    <div class="timeline-graphic">
-                        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 0.4rem;">
-                            <span>LinkedIn Release</span>
-                            <span style="color: var(--purple-light);">9:00 AM (Scheduled)</span>
+                    <div class="timeline-graphic" style="background: rgba(13, 18, 35, 0.45); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <!-- Scheduled posts timetable grid -->
+                        <div style="display: flex; justify-content: space-between; font-size: 0.725rem; background: rgba(0,0,0,0.3); padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.03);">
+                            <span style="color: var(--text-secondary);">9:00 AM</span>
+                            <span style="font-weight: 600;">AI Robot Bartender</span>
+                            <span style="color: var(--green-primary);">Scheduled</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; background: rgba(0,0,0,0.4); padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
-                            <span>X/Twitter Release</span>
-                            <span style="color: var(--purple-light);">12:00 PM (Scheduled)</span>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.725rem; background: rgba(0,0,0,0.3); padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.03);">
+                            <span style="color: var(--text-secondary);">12:00 PM</span>
+                            <span style="font-weight: 600;">NASA AI Trailer</span>
+                            <span style="color: var(--green-primary);">Scheduled</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.725rem; background: rgba(0,0,0,0.3); padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.03);">
+                            <span style="color: var(--text-secondary);">3:00 PM</span>
+                            <span style="font-weight: 600;">Cinematic AI Short</span>
+                            <span style="color: var(--green-primary);">Scheduled</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.725rem; background: rgba(0,0,0,0.3); padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.03);">
+                            <span style="color: var(--text-secondary);">6:00 PM</span>
+                            <span style="font-weight: 600;">This AI Dog Video</span>
+                            <span style="color: var(--green-primary);">Scheduled</span>
                         </div>
                     </div>
-                    <div class="timeline-content">
+                    <div class="timeline-content" style="text-align: left;">
                         <div class="timeline-number">06</div>
                         <h3>Autopilot & Scheduler</h3>
                         <p>Automates, queues, and auto-publishes campaigns live to your Twitter/X and LinkedIn accounts.</p>
-                        <button class="btn btn-secondary start-app-trigger">Open Scheduler &rarr;</button>
+                        <a href="#" class="feature-card-link start-app-trigger" style="color: var(--purple-light); font-weight: 600; text-decoration: none;">Learn more &rarr;</a>
                     </div>
                 </div>
             </div>
         </section>
+
+        <!-- Why Creators Choose TrendPilot AI Section -->
+        <section id="benefits" class="landing-section" style="border-top: 1px solid rgba(255,255,255,0.03); text-align: center;">
+            <div class="section-label">BUILT FOR CREATORS & STUDIOS</div>
+            <div class="section-title">Why Creators Choose TrendPilot AI</div>
+            
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; margin-top: 2rem;">
+                <div style="background: rgba(13, 18, 35, 0.4); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
+                    <div style="color: var(--purple-light);">
+                        <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    </div>
+                    <span style="font-size: 0.85rem; font-weight: 700; color: #fff;">Save 20+ hours<br>every week</span>
+                </div>
+                
+                <div style="background: rgba(13, 18, 35, 0.4); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
+                    <div style="color: var(--blue-primary);">
+                        <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    </div>
+                    <span style="font-size: 0.85rem; font-weight: 700; color: #fff;">Always post<br>what's trending</span>
+                </div>
+
+                <div style="background: rgba(13, 18, 35, 0.4); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
+                    <div style="color: #ec4899;">
+                        <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                    </div>
+                    <span style="font-size: 0.85rem; font-weight: 700; color: #fff;">Increase engagement<br>and reach</span>
+                </div>
+
+                <div style="background: rgba(13, 18, 35, 0.4); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
+                    <div style="color: var(--green-primary);">
+                        <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                    </div>
+                    <span style="font-size: 0.85rem; font-weight: 700; color: #fff;">Auto-pilot your<br>content machine</span>
+                </div>
+
+                <div style="background: rgba(13, 18, 35, 0.4); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
+                    <div style="color: #fbbf24;">
+                        <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                    </div>
+                    <span style="font-size: 0.85rem; font-weight: 700; color: #fff;">Built for scale<br>and creators</span>
+                </div>
+            </div>
+        </section>
         
-        <footer style="padding: 4rem 5rem; border-top: 1px solid rgba(255,255,255,0.03); text-align: center;">
-            <h2 style="font-family:'Outfit', sans-serif; font-size: 2.2rem; font-weight: 800; margin-bottom: 1rem;">Ready to dominate the feed?</h2>
-            <p style="color: var(--text-secondary); margin-bottom: 2rem;">Start finding, creating, and autopilot-posting viral AI clips today.</p>
-            <button class="btn btn-primary start-app-trigger" style="padding: 0.8rem 2.2rem; font-size: 1rem;">Start Your Free Trial</button>
+        <footer style="padding: 6rem 5rem; border-top: 1px solid rgba(255,255,255,0.03); text-align: center; max-width: 800px; margin: 0 auto;">
+            <h2 style="font-family:'Outfit', sans-serif; font-size: 2.6rem; font-weight: 800; margin-bottom: 1rem;">Ready to dominate the feed?</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 2.2rem; font-size: 1.05rem;">Start finding, creating, and autopublishing viral AI content today. Join thousands of creators already winning.</p>
+            <div style="display: flex; gap: 1rem; align-items: center; justify-content: center; margin-bottom: 0.85rem;">
+                <button class="btn btn-primary start-app-trigger" style="padding: 0.85rem 2rem; font-size: 0.95rem;">Start Your Free Trial &rarr;</button>
+                <button class="btn btn-secondary start-app-trigger" style="padding: 0.85rem 2rem; font-size: 0.95rem;">Book a Demo</button>
+            </div>
+            <span style="font-size: 0.75rem; color: var(--text-secondary);">No credit card required &bull; Cancel anytime</span>
         </footer>
     </div>
 
