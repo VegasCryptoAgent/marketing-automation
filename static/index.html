@@ -758,10 +758,18 @@ function App() {
       <ConnectionBanner />
       <Header view={view} onNavigate={setView} />
       <main className="app-container">
-        {view === 'cockpit' && <CockpitScreen />}
-        {view === 'trends' && <TrendsScreen />}
-        {view === 'repurposer' && <RepurposerScreen />}
-        {view === 'pipeline' && <PipelineScreen />}
+        <div style={{ display: view === 'cockpit' ? 'block' : 'none' }}>
+          <CockpitScreen />
+        </div>
+        <div style={{ display: view === 'trends' ? 'block' : 'none' }}>
+          <TrendsScreen />
+        </div>
+        <div style={{ display: view === 'repurposer' ? 'block' : 'none' }}>
+          <RepurposerScreen />
+        </div>
+        <div style={{ display: view === 'pipeline' ? 'block' : 'none' }}>
+          <PipelineScreen />
+        </div>
       </main>
     </React.Fragment>
   );
