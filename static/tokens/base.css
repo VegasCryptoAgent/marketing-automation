@@ -1,0 +1,58 @@
+/* ==========================================================================
+   TrendPilot AI — Base resets & global surface
+   ========================================================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--surface-page);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Decorative ambient glow blobs — use behind any full dark page */
+.tp-glow-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.tp-glow-bg::before,
+.tp-glow-bg::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: var(--blur-glow);
+  opacity: 0.15;
+}
+.tp-glow-bg::before {
+  background: var(--glow-violet);
+  width: 45vw;
+  height: 45vw;
+  top: -10vw;
+  right: -10vw;
+}
+.tp-glow-bg::after {
+  background: var(--glow-pink);
+  width: 35vw;
+  height: 35vw;
+  bottom: -5vw;
+  left: -10vw;
+}

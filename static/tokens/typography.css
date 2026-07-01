@@ -1,0 +1,41 @@
+/* ==========================================================================
+   TrendPilot AI — Typography Tokens
+   Fonts: Inter (body/UI) + Outfit (display/headings) — loaded from the
+   reference app's own Google Fonts link. No local font files were present
+   in the source repo, so we import from Google Fonts CDN (same fonts, same
+   weights the app requests: Inter 300–700, Outfit 400/600/800).
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --font-body: 'Inter', sans-serif;
+  --font-display: 'Outfit', sans-serif;
+  --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+
+  /* ---- Semantic type roles ---- */
+  --text-display-size: 1.8rem;      /* page/section titles, e.g. Cockpit H1 */
+  --text-h1-size: 1.4rem;           /* card/modal headings */
+  --text-h2-size: 1.3rem;
+  --text-h3-size: 1.1rem;
+  --text-h4-size: 0.95rem;
+  --text-body-size: 0.95rem;
+  --text-small-size: 0.85rem;
+  --text-tiny-size: 0.75rem;
+  --text-micro-size: 0.65rem;       /* uppercase eyebrow / badges */
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.4;
+  --leading-relaxed: 1.6;
+
+  --tracking-tight: 0;
+  --tracking-wide: 0.02em;
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.1em;         /* logotype spacing */
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-black: 800;
+}

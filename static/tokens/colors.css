@@ -1,0 +1,63 @@
+/* ==========================================================================
+   TrendPilot AI — Color Tokens
+   Source of truth: VegasCryptoAgent/marketing-automation (static/index.css)
+   Dark, glassmorphic, gradient-accented. Values copied verbatim from the
+   reference app — do not round to a framework default.
+   ========================================================================== */
+
+:root {
+  /* ---- Base palette (raw values from source app) ---- */
+  --bg-dark: #0a0a0c;
+  --bg-card-raw: 18, 18, 24;
+  --bg-card: rgba(18, 18, 24, 0.75);
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-color-strong: rgba(255, 255, 255, 0.15);
+  --border-color-hover: rgba(255, 255, 255, 0.2);
+
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-tertiary: #e5e7eb;
+
+  /* ---- Brand gradient + primary accent ---- */
+  --primary-grad: linear-gradient(135deg, #8b5cf6 0%, #d946ef 50%, #f43f5e 100%); /* @kind color */
+  --primary-glow: 0 0 20px rgba(139, 92, 246, 0.45);
+  --primary-color: #a78bfa;
+  --primary-color-strong: #8b5cf6;
+  --accent-color: #fbbf24;
+
+  /* Glow-bg decorative blobs (top-right violet, bottom-left pink) */
+  --glow-violet: #8b5cf6;
+  --glow-pink: #ec4899;
+
+  /* ---- Semantic status ---- */
+  --success-color: #10b981;
+  --error-color: #f43f5e;
+  --warning-color: #fbbf24;
+  --info-color: #a78bfa;
+
+  /* ---- Surfaces & fills (semantic aliases) ---- */
+  --surface-page: var(--bg-dark);
+  --surface-card: var(--bg-card);
+  --surface-card-hover-border: var(--border-color-hover);
+  --surface-sunken: rgba(0, 0, 0, 0.25);
+  --surface-sunken-strong: rgba(0, 0, 0, 0.4);
+  --surface-raised: rgba(255, 255, 255, 0.04);
+  --surface-raised-hover: rgba(255, 255, 255, 0.1);
+  --surface-scrim: rgba(0, 0, 0, 0.85);
+
+  /* ---- Text semantic aliases ---- */
+  --text-heading: var(--text-primary);
+  --text-body: var(--text-tertiary);
+  --text-muted: var(--text-secondary);
+  --text-link: var(--primary-color);
+  --text-on-gradient: #ffffff;
+
+  /* ---- Badge tints ---- */
+  --badge-primary-bg: rgba(139, 92, 246, 0.15);
+  --badge-primary-border: rgba(139, 92, 246, 0.3);
+  --badge-primary-text: var(--primary-color);
+  --badge-success-bg: rgba(40, 167, 69, 0.2);
+  --badge-success-text: #28a745;
+  --badge-error-bg: rgba(220, 53, 69, 0.2);
+  --badge-error-text: #dc3545;
+}
