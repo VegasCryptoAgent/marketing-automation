@@ -632,16 +632,18 @@ def run_video_generation(
             http_options=types.HttpOptions(timeout=180000)
         )
 
-        update_job_status(job_id, "PROCESSING", 25, "Submitting video generation request to Google Veo 3.1...")
+        model_name = "gemini-omni-flash-preview" if engine == "google_omni" else "veo-3.1-generate-preview"
+        engine_label = "Google Omni Video" if engine == "google_omni" else "Google Veo 3.1"
         
-        # Configure Veo 3.1 generation parameters
+        update_job_status(job_id, "PROCESSING", 25, f"Submitting video generation request to {engine_label}...")
+        
         config = types.GenerateVideosConfig(
             aspect_ratio="16:9",
             number_of_videos=1
         )
 
         operation = client.models.generate_videos(
-            model="veo-3.1-generate-preview",
+            model=model_name,
             prompt=prompt,
             config=config
         )
