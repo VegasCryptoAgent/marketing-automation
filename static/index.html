@@ -124,6 +124,35 @@ function PipelineScreen() {
   const fileInputRef = React.useRef(null);
   const [copied, setCopied] = React.useState(false);
   const [publishing, setPublishing] = React.useState(false);
+  const [renderEngine, setRenderEngine] = React.useState('google_veo');
+  const [renderDuration, setRenderDuration] = React.useState('5');
+  const [renderStatus, setRenderStatus] = React.useState(null);
+  const [renderedVideo, setRenderedVideo] = React.useState(null);
+  const [rendering, setRendering] = React.useState(false);
+
+  async function triggerVideoRender() {
+    setRendering(true);
+    setRenderedVideo(null);
+    setRenderStatus({ status: 'PENDING', progress: 0, message: 'Enqueuing render job...' });
+    try {
+      const prompt = result.brief.recreation_motion_prompt || result.brief.suggested_concept || "AI Cinematic visual loop";
+      const data = await apiFetch('/api/generate-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, engine: renderEngine, duration: parseInt(renderDuration) })
+      });
+      const final = await pollJob('/api/video-status', data.job_id, setRenderStatus, { timeoutMs: 300000 });
+      if (final.status === 'SUCCESS') {
+        setRenderedVideo(final.result.video_path);
+      } else {
+        setError(final.message || 'Rendering failed.');
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRendering(false);
+    }
+  }
 
   async function handleFilePicked(file) {
     setPickedFile(file);
@@ -217,6 +246,47 @@ function PipelineScreen() {
                     {result.brief.key_themes.map((t) => <span key={t} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}>{t}</span>)}
                   </div>
                 </div>
+                
+                <div style={{ marginTop: '1.25rem', padding: '1rem', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
+                  <h4 style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '0.55rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--primary-color)' }}><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                    Cinematic AI Video Renderer
+                  </h4>
+                  {rendering ? (
+                    <div style={{ padding: '0.5rem 0', textAlign: 'center' }}>
+                      <Spinner />
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                        {renderStatus ? `${renderStatus.message} (${renderStatus.progress}%)` : 'Rendering...'}
+                      </p>
+                    </div>
+                  ) : renderedVideo ? (
+                    <div>
+                      <video src={API_BASE + renderedVideo} controls style={{ width: '100%', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }} />
+                      <a href={API_BASE + renderedVideo} download style={{ display: 'block', textDecoration: 'none', textAlign: 'center', fontSize: '0.75rem', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', background: 'rgba(255,255,255,0.02)' }}>Download Video</a>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                        <div>
+                          <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.2rem' }}>AI Render Engine</label>
+                          <select value={renderEngine} onChange={(e) => setRenderEngine(e.target.value)} style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: 4, padding: '0.25rem 0.4rem', fontSize: '0.7rem', width: '100%' }}>
+                            <option value="google_veo">Google Veo 3.1</option>
+                            <option value="runway_gen3">Runway Gen-3</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.2rem' }}>Video Duration</label>
+                          <select value={renderDuration} onChange={(e) => setRenderDuration(e.target.value)} style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: 4, padding: '0.25rem 0.4rem', fontSize: '0.7rem', width: '100%' }}>
+                            <option value="5">5s Preview</option>
+                            {renderEngine === 'runway_gen3' && <option value="10">10s Scene</option>}
+                            {renderEngine === 'runway_gen3' && <option value="30">30s Cut</option>}
+                          </select>
+                        </div>
+                      </div>
+                      <Button variant="primary" onClick={triggerVideoRender} style={{ width: '100%', fontSize: '0.75rem', padding: '0.4rem' }}>Generate Preview Video</Button>
+                    </div>
+                  )}
+                </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <Tabs active={tab} onChange={setTab} items={[{ value: 'linkedin', label: 'LinkedIn' }, { value: 'twitter', label: 'Twitter / X' }, { value: 'instagram', label: 'Instagram' }]} />
@@ -276,6 +346,34 @@ function TrendsScreen() {
   const [error, setError] = React.useState(null);
   const [copied, setCopied] = React.useState(false);
   const [publishing, setPublishing] = React.useState(false);
+  const [renderEngine, setRenderEngine] = React.useState('google_veo');
+  const [renderDuration, setRenderDuration] = React.useState('5');
+  const [renderStatus, setRenderStatus] = React.useState(null);
+  const [renderedVideos, setRenderedVideos] = React.useState({});
+  const [rendering, setRendering] = React.useState(false);
+
+  async function triggerVideoRender() {
+    setRendering(true);
+    setRenderStatus({ status: 'PENDING', progress: 0, message: 'Enqueuing render job...' });
+    try {
+      const prompt = active.recreated_video_prompt || "AI Cinematic visual loop";
+      const data = await apiFetch('/api/generate-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, engine: renderEngine, duration: parseInt(renderDuration) })
+      });
+      const final = await pollJob('/api/video-status', data.job_id, setRenderStatus, { timeoutMs: 300000 });
+      if (final.status === 'SUCCESS') {
+        setRenderedVideos({ ...renderedVideos, [active.title]: final.result.video_path });
+      } else {
+        setError(final.message || 'Rendering failed.');
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRendering(false);
+    }
+  }
 
   async function runScan() {
     setScanning(true);
@@ -335,6 +433,47 @@ function TrendsScreen() {
                   </div>
                   <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Image-to-Video Motion Prompt</label>
                   <Textarea rows={5} readOnly value={active.recreated_video_prompt} style={{ marginTop: '0.5rem' }} />
+                  
+                  <div style={{ marginTop: '1.25rem', padding: '1rem', background: 'rgba(255, 255, 255, 0.01)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
+                    <h4 style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginBottom: '0.55rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--primary-color)' }}><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                      Cinematic AI Video Renderer
+                    </h4>
+                    {rendering ? (
+                      <div style={{ padding: '0.5rem 0', textAlign: 'center' }}>
+                        <Spinner />
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+                          {renderStatus ? `${renderStatus.message} (${renderStatus.progress}%)` : 'Rendering...'}
+                        </p>
+                      </div>
+                    ) : renderedVideos[active.title] ? (
+                      <div>
+                        <video src={API_BASE + renderedVideos[active.title]} controls style={{ width: '100%', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', marginBottom: '0.5rem' }} />
+                        <a href={API_BASE + renderedVideos[active.title]} download style={{ display: 'block', textDecoration: 'none', textAlign: 'center', fontSize: '0.75rem', padding: '0.4rem', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', background: 'rgba(255,255,255,0.02)' }}>Download Video</a>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.2' }}>AI Render Engine</label>
+                            <select value={renderEngine} onChange={(e) => setRenderEngine(e.target.value)} style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: 4, padding: '0.25rem 0.4rem', fontSize: '0.7rem', width: '100%' }}>
+                              <option value="google_veo">Google Veo 3.1</option>
+                              <option value="runway_gen3">Runway Gen-3</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.2rem' }}>Video Duration</label>
+                            <select value={renderDuration} onChange={(e) => setRenderDuration(e.target.value)} style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: 4, padding: '0.25rem 0.4rem', fontSize: '0.7rem', width: '100%' }}>
+                              <option value="5">5s Preview</option>
+                              {renderEngine === 'runway_gen3' && <option value="10">10s Scene</option>}
+                              {renderEngine === 'runway_gen3' && <option value="30">30s Cut</option>}
+                            </select>
+                          </div>
+                        </div>
+                        <Button variant="primary" onClick={triggerVideoRender} style={{ width: '100%', fontSize: '0.75rem', padding: '0.4rem' }}>Generate Preview Video</Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <Tabs active={ctab} onChange={setCtab} items={[{ value: 'linkedin', label: 'LinkedIn' }, { value: 'twitter', label: 'Twitter / X' }, { value: 'instagram', label: 'Instagram' }]} />
@@ -358,9 +497,11 @@ function TrendsScreen() {
                         body: JSON.stringify(ctab === 'twitter' ? {
                           text: active.recreated_twitter_thread[0],
                           thread: active.recreated_twitter_thread,
-                          is_thread: active.recreated_twitter_thread.length > 1
+                          is_thread: active.recreated_twitter_thread.length > 1,
+                          video_path: renderedVideos[active.title] || null
                         } : {
-                          text: active.recreated_linkedin_post
+                          text: active.recreated_linkedin_post,
+                          video_path: renderedVideos[active.title] || null
                         })
                       })
                       .then((res) => alert(res.message || "Successfully published!"))

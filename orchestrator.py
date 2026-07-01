@@ -58,7 +58,7 @@ class ViralConcept(BaseModel):
 
 
 class ViralSearchResponse(BaseModel):
-    trends: List[ViralConcept] = Field(description="A list of exactly 3 viral video concepts found on social media from the last 24 hours.")
+    trends: List[ViralConcept] = Field(description="A list of exactly 10 viral video concepts found on social media from the last 24 hours.")
 
 # In-memory job status cache
 jobs_status: Dict[str, Dict[str, Any]] = {}
@@ -290,12 +290,12 @@ def run_live_trend_scanner(
 
         {news_context}
 
-        Based on this context, identify 3 highly viral or trending AI video concepts and stories. Focus specifically on categories related to 6Frame Studio's niche:
+        Based on this context, identify 10 highly viral or trending AI video concepts and stories. Focus specifically on categories related to 6Frame Studio's niche:
         - AI filmmaking and cinematic AI trailers (e.g. Sora, Runway Gen-3, Kling, Luma, Veo)
         - AI logo animations, visual loops, and motion design
         - AI music videos and audio-visual experiments
 
-        For each of the 3 trends identified, describe:
+        For each of the 10 trends identified, describe:
         1. The platform where it was found (Reddit, YouTube, or public news)
         2. The direct URL from the context or a related watch link. This URL MUST be a real, valid watch URL from the context. Do NOT generate mock usernames or placeholder links (like 'examplecyber', 'status/12345').
         3. The author or creator's username
@@ -322,11 +322,11 @@ def run_live_trend_scanner(
         
         adaptation_prompt = f"""
         You are a social media copywriter for 6Frame Studio.
-        We have researched the top 3 viral AI video trends from the last 24 hours:
+        We have researched the top 10 viral AI video trends from the last 24 hours:
 
         {search_text}
 
-        For each of these 3 trending concepts:
+        For each of these 10 trending concepts:
         1. Keep the platform, author, title, and viral metrics. Ensure the URL is kept as a valid direct HTTP/HTTPS link to the original video source (do NOT change it to keywords or text descriptions).
         2. Describe the original concept and visual technique.
         3. Explain how 6Frame Studio can recreate this viral concept using their premium, cinematic, artistic style.
