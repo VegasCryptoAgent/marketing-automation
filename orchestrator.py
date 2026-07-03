@@ -295,7 +295,7 @@ def run_live_trend_scanner(
         - AI music videos and audio-visual experiments
 
         For each of the 10 trends identified, describe:
-        1. The platform where it was found (Reddit, YouTube, or public news)
+        1. The EXACT source platform or publisher where it was found. Extract this from the URL domain or article title — e.g. "Reddit", "YouTube", "Twitter/X", "TechCrunch", "The Verge", "Wired", "VentureBeat", "9to5Google", "Engadget", "ArsTechnica", "MIT Technology Review", "Bloomberg", etc. DO NOT use generic labels like "public news" or "news". Use the actual website or community name.
         2. The direct URL from the context or a related watch link. This URL MUST be a real, valid watch URL from the context. Do NOT generate mock usernames or placeholder links (like 'examplecyber', 'status/12345').
         3. The author or creator's username
         4. The title/description of the video
@@ -326,7 +326,7 @@ def run_live_trend_scanner(
         {search_text}
 
         For each of these 10 trending concepts:
-        1. Keep the platform, author, title, and viral metrics. Ensure the URL is kept as a valid direct HTTP/HTTPS link to the original video source (do NOT change it to keywords or text descriptions).
+        1. Keep the EXACT platform/publisher name (e.g. "TechCrunch", "Reddit", "YouTube", "The Verge"), author, title, and viral metrics. NEVER replace the platform name with "public news", "news", or any generic label. Ensure the URL is kept as a valid direct HTTP/HTTPS link to the original video source (do NOT change it to keywords or text descriptions).
         2. Describe the original concept and visual technique.
         3. Explain how 6Frame Studio can recreate this viral concept using their premium, cinematic, artistic style.
         4. Write the exact Image-to-Video motion prompt to render our adapted version.
