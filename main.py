@@ -1127,7 +1127,7 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), na
 @app.get("/")
 def read_root():
     return FileResponse(
-        os.path.join(BASE_DIR, "static", "website.html"),
+        os.path.join(BASE_DIR, "static", "index.html"),
         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
     )
 
