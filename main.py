@@ -1130,11 +1130,3 @@ def read_root():
         os.path.join(BASE_DIR, "static", "index.html"),
         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
     )
-
-@app.get("/dashboard/index.html")
-def read_dashboard_html():
-    return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
-
-@app.get("/dashboard")
-def read_dashboard():
-    return FileResponse(os.path.join(BASE_DIR, "static", "index.html"))
