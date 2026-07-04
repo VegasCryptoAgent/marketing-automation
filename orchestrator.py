@@ -632,8 +632,8 @@ def run_video_generation(
             http_options=types.HttpOptions(timeout=180000)
         )
 
-        model_name = "gemini-omni-flash-preview" if engine == "google_omni" else "veo-3.1-generate-preview"
-        engine_label = "Gemini Omni Flash (Fast)" if engine == "google_omni" else "Google Veo 3.1"
+        model_name = "veo-3.1-fast-generate-preview" if engine == "google_veo_fast" else "veo-3.1-generate-preview"
+        engine_label = "Google Veo 3.1 Fast" if engine == "google_veo_fast" else "Google Veo 3.1"
         
         update_job_status(job_id, "PROCESSING", 25, f"Submitting video generation request to {engine_label}...")
         

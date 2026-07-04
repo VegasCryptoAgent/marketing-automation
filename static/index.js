@@ -138,17 +138,21 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.getElementById("autonomous-hour").value = data.autonomous_hour || 9;
                 document.getElementById("auto-platform-twitter").checked = data.autonomous_platforms ? data.autonomous_platforms.includes("twitter") : true;
                 document.getElementById("auto-platform-linkedin").checked = data.autonomous_platforms ? data.autonomous_platforms.includes("linkedin") : true;
+                document.getElementById("autonomous-video-engine").value = data.autonomous_video_engine || "runway_gen3";
+                document.getElementById("autonomous-video-duration").value = data.autonomous_video_duration || 10;
 
                 // Cockpit inputs
                 document.getElementById("cockpit-mock-mode").checked = data.mock_mode;
                 document.getElementById("cockpit-gemini-key").value = data.gemini_api_key || "";
                 document.getElementById("cockpit-runway-key").value = data.runway_api_key || "";
                 document.getElementById("cockpit-brand-voice").value = data.brand_voice || "";
-                
+
                 document.getElementById("cockpit-autonomous-posting").checked = data.autonomous_posting || false;
                 document.getElementById("cockpit-autonomous-hour").value = data.autonomous_hour || 9;
                 document.getElementById("cockpit-auto-platform-twitter").checked = data.autonomous_platforms ? data.autonomous_platforms.includes("twitter") : true;
                 document.getElementById("cockpit-auto-platform-linkedin").checked = data.autonomous_platforms ? data.autonomous_platforms.includes("linkedin") : true;
+                document.getElementById("cockpit-autonomous-video-engine").value = data.autonomous_video_engine || "runway_gen3";
+                document.getElementById("cockpit-autonomous-video-duration").value = data.autonomous_video_duration || 10;
                 
                 // Wizard toggle
                 document.getElementById("wizard-autonomous-posting").checked = data.autonomous_posting || false;
@@ -180,7 +184,9 @@ document.addEventListener("DOMContentLoaded", () => {
             mock_mode: mockModeCheck.checked,
             autonomous_posting: document.getElementById("autonomous-posting").checked,
             autonomous_hour: parseInt(document.getElementById("autonomous-hour").value, 10),
-            autonomous_platforms: autoPlatforms
+            autonomous_platforms: autoPlatforms,
+            autonomous_video_engine: document.getElementById("autonomous-video-engine").value,
+            autonomous_video_duration: parseInt(document.getElementById("autonomous-video-duration").value, 10)
         };
 
         fetch("/api/settings", {
@@ -1849,7 +1855,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 mock_mode: document.getElementById("cockpit-mock-mode").checked,
                 autonomous_posting: document.getElementById("cockpit-autonomous-posting").checked,
                 autonomous_hour: parseInt(document.getElementById("cockpit-autonomous-hour").value, 10),
-                autonomous_platforms: autoPlatforms
+                autonomous_platforms: autoPlatforms,
+                autonomous_video_engine: document.getElementById("cockpit-autonomous-video-engine").value,
+                autonomous_video_duration: parseInt(document.getElementById("cockpit-autonomous-video-duration").value, 10)
             };
 
             cockpitSaveBtn.disabled = true;

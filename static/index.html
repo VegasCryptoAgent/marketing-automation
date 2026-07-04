@@ -250,7 +250,7 @@
                                           <label for="concept-video-engine" style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Select AI Render Engine</label>
                                           <select id="concept-video-engine" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
                                               <option value="google_veo">Google Veo 3.1 (Cinematic)</option>
-                                              <option value="google_omni">Google Gemini Omni Flash (Fast)</option>
+                                              <option value="google_veo_fast">Google Veo 3.1 Fast</option>
                                               <option value="runway_gen3">Runway Gen-3 (Alpha Turbo / Gen-4.5)</option>
                                           </select>
                                       </div>
@@ -429,7 +429,7 @@
                                               <label for="trend-video-engine" style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Select AI Render Engine</label>
                                               <select id="trend-video-engine" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
                                                   <option value="google_veo">Google Veo 3.1 (Cinematic)</option>
-                                                  <option value="google_omni">Google Gemini Omni Flash (Fast)</option>
+                                                  <option value="google_veo_fast">Google Veo 3.1 Fast</option>
                                                   <option value="runway_gen3">Runway Gen-3 (Alpha Turbo)</option>
                                               </select>
                                           </div>
@@ -825,6 +825,22 @@
                                 </label>
                             </div>
                         </div>
+                        <div class="input-group" style="margin-bottom: 1.25rem;">
+                            <label for="cockpit-autonomous-video-engine" style="font-size: 0.75rem; margin-bottom: 0.35rem; display: block; color: var(--text-secondary);">Autopilot Video Render Engine</label>
+                            <select id="cockpit-autonomous-video-engine" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 0.5rem; font-size: 0.8rem; width: 100%;">
+                                <option value="google_veo">Google Veo 3.1 (Cinematic)</option>
+                                <option value="google_veo_fast">Google Veo 3.1 Fast</option>
+                                <option value="runway_gen3">Runway Gen-3 (Alpha Turbo / Gen-4.5)</option>
+                            </select>
+                        </div>
+                        <div class="input-group" style="margin-bottom: 0;">
+                            <label for="cockpit-autonomous-video-duration" style="font-size: 0.75rem; margin-bottom: 0.35rem; display: block; color: var(--text-secondary);">Autopilot Video Duration</label>
+                            <select id="cockpit-autonomous-video-duration" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 0.5rem; font-size: 0.8rem; width: 100%;">
+                                <option value="5">5 seconds (Quick Preview)</option>
+                                <option value="10">10 seconds (Single Scene - Runway Only)</option>
+                                <option value="30">30 seconds (Cinematic Cut - Runway Only)</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div style="border-top: 1px solid var(--border-color); padding-top: 1.25rem; margin-top: 1.25rem;">
@@ -1044,6 +1060,22 @@
                                 <input type="checkbox" id="auto-platform-linkedin" checked> LinkedIn
                             </label>
                         </div>
+                    </div>
+                    <div class="input-group" style="margin-top: 0.75rem;">
+                        <label for="autonomous-video-engine">Autopilot Video Render Engine</label>
+                        <select id="autonomous-video-engine" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
+                            <option value="google_veo">Google Veo 3.1 (Cinematic)</option>
+                            <option value="google_veo_fast">Google Veo 3.1 Fast</option>
+                            <option value="runway_gen3">Runway Gen-3 (Alpha Turbo / Gen-4.5)</option>
+                        </select>
+                    </div>
+                    <div class="input-group" style="margin-top: 0.5rem;">
+                        <label for="autonomous-video-duration">Autopilot Video Duration</label>
+                        <select id="autonomous-video-duration" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
+                            <option value="5">5 seconds (Quick Preview)</option>
+                            <option value="10">10 seconds (Single Scene - Runway Only)</option>
+                            <option value="30">30 seconds (Cinematic Cut - Runway Only)</option>
+                        </select>
                     </div>
                 </details>
             </div>

@@ -67,7 +67,9 @@ DEFAULT_SETTINGS = {
     "runway_api_key": "",
     "autonomous_posting": False,
     "autonomous_hour": 9,
-    "autonomous_platforms": ["twitter", "linkedin"]
+    "autonomous_platforms": ["twitter", "linkedin"],
+    "autonomous_video_engine": "runway_gen3",
+    "autonomous_video_duration": 10
 }
 
 def load_settings():
@@ -92,7 +94,7 @@ def load_settings():
                 settings[k] = True
             elif env_val.lower() == "false":
                 settings[k] = False
-            elif k == "autonomous_hour":
+            elif k in ("autonomous_hour", "autonomous_video_duration"):
                 try:
                     settings[k] = int(env_val)
                 except:
@@ -128,6 +130,8 @@ class SettingsSchema(BaseModel):
     autonomous_posting: bool
     autonomous_hour: int
     autonomous_platforms: List[str]
+    autonomous_video_engine: str
+    autonomous_video_duration: int
 
 class AnalyzeRequest(BaseModel):
     video_path: str
@@ -854,24 +858,26 @@ async def execute_autonomous_autopost(settings: dict):
     top_trend = trends[0]
     logger.info(f"Selected top trend: {top_trend['title']}")
     
-    # Trigger video generation and await completion (Runway Gen-3, 10s)
+    # Trigger video generation and await completion (engine/duration from Autopilot settings)
     video_job_id = str(uuid.uuid4())
-    logger.info("Autopilot: Starting 10-second Runway video rendering...")
+    video_engine = settings.get("autonomous_video_engine", "runway_gen3")
+    video_duration = int(settings.get("autonomous_video_duration", 10))
+    logger.info(f"Autopilot: Starting {video_duration}-second video rendering using {video_engine}...")
     await loop.run_in_executor(
-        None, 
-        run_video_generation, 
-        video_job_id, 
-        top_trend["recreated_video_prompt"], 
-        settings, 
-        "runway_gen3", 
-        10
+        None,
+        run_video_generation,
+        video_job_id,
+        top_trend["recreated_video_prompt"],
+        settings,
+        video_engine,
+        video_duration
     )
-    
+
     generated_video_path = None
     video_status = get_job_status(video_job_id)
     if video_status.get("status") == "SUCCESS":
         generated_video_path = f"/static/assets/generated/{video_job_id}.mp4"
-        logger.info(f"Autopilot: Generated 10s video successfully: {generated_video_path}")
+        logger.info(f"Autopilot: Generated {video_duration}s video successfully: {generated_video_path}")
     else:
         logger.error(f"Autopilot: Video generation failed or timed out: {video_status.get('message')}")
     
