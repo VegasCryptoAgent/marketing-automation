@@ -1,9 +1,10 @@
 FROM python:3.11-slim
 
-# Install system dependencies (ffmpeg, ffprobe, curl)
+# Install system dependencies (ffmpeg, ffprobe, curl, fonts for video text overlays)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 18 from NodeSource (provides /usr/bin/node)

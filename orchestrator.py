@@ -22,6 +22,20 @@ def get_binary_path(name: str) -> str:
         return which_path
     return name
 
+def get_font_path() -> str:
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Debian/Railway container
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",     # macOS
+        "/opt/homebrew/share/fonts/DejaVuSans-Bold.ttf",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return ""
+
+def escape_ffmpeg_text(text: str) -> str:
+    return (text or "").replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'").replace("%", "\\%")
+
 # Structured output schemas using Pydantic
 class TwitterThread(BaseModel):
     tweets: List[str] = Field(description="A list of 1 to 3 tweets representing a thread. Each tweet must be strictly under 280 characters.")
@@ -32,6 +46,11 @@ class SocialCopyResponse(BaseModel):
     twitter_thread: List[str] = Field(description="A list of 2 to 3 tweets representing a thread. Each tweet must be strictly under 280 characters. The first tweet should contain a strong hook.")
     instagram_caption: str = Field(description="An aesthetic, visually-driven Instagram caption. Under 150 words. Focus on mood, cinematography, and styling.")
     suggested_hashtags: List[str] = Field(description="5 to 8 highly relevant hashtags (e.g. #AIArt, #Sora, #RunwayML, #6FrameStudio).")
+
+class ViralityScore(BaseModel):
+    score: int = Field(description="Predicted virality score from 0 to 100, where 100 is maximum viral potential.")
+    reasoning: str = Field(description="Brief explanation of the score, covering hook strength, visual novelty, and shareability.")
+    suggested_improvements: List[str] = Field(description="2 to 4 concrete, specific suggestions to increase the score.")
 
 class ContextBrief(BaseModel):
     video_summary: str = Field(description="Detailed description of what happens in the video (visuals, subjects, motions, style, transitions).")
@@ -750,6 +769,166 @@ def run_video_generation(
     except Exception as e:
         logger.exception("Error in video generation")
         update_job_status(job_id, "FAILED", 0, f"Video generation failed: {str(e)}")
+
+def build_reframe_filter(width: int, height: int, text: str, font_path: str, y_offset: int) -> str:
+    """Blur-pad reframe: scale+crop a blurred background to fill the target frame,
+    then overlay the properly-scaled (letterboxed) original video on top, plus a
+    burned-in hook-text card near the bottom — the on-screen-text equivalent of
+    captions for non-narrated cinematic AI clips."""
+    filt = (
+        f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},gblur=sigma=20[bg];"
+        f"[0:v]scale={width}:{height}:force_original_aspect_ratio=decrease[fg];"
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2"
+    )
+    if text and font_path:
+        escaped = escape_ffmpeg_text(text)
+        filt += (
+            f",drawtext=fontfile='{font_path}':text='{escaped}':fontcolor=white:fontsize=54:"
+            f"line_spacing=8:box=1:boxcolor=black@0.55:boxborderw=16:"
+            f"x=(w-text_w)/2:y=h-{y_offset}"
+        )
+    return filt + "[outv]"
+
+def run_ffmpeg_variant(input_path: str, output_path: str, filter_complex: str):
+    import subprocess
+    cmd = [
+        get_binary_path("ffmpeg"), "-y",
+        "-i", input_path,
+        "-filter_complex", filter_complex,
+        "-map", "[outv]", "-map", "0:a?",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+        "-c:a", "aac", "-shortest",
+        output_path
+    ]
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if res.returncode != 0:
+        raise RuntimeError(f"ffmpeg variant render failed: {res.stderr[-800:]}")
+
+def render_variant_with_fallback(input_path: str, output_path: str, width: int, height: int,
+                                  text: str, font_path: str, y_offset: int) -> bool:
+    """Renders a reframed variant. If the installed ffmpeg build lacks the drawtext filter
+    (some minimal builds omit libfreetype/fontconfig), retries without the text overlay
+    rather than failing the whole variant. Returns whether text was actually burned in."""
+    filt = build_reframe_filter(width, height, text, font_path, y_offset)
+    try:
+        run_ffmpeg_variant(input_path, output_path, filt)
+        return bool(text and font_path)
+    except RuntimeError as e:
+        if text and font_path and "drawtext" in str(e).lower():
+            logger.warning("ffmpeg build lacks drawtext filter support — rendering variant without burned-in text.")
+            filt_no_text = build_reframe_filter(width, height, "", font_path, y_offset)
+            run_ffmpeg_variant(input_path, output_path, filt_no_text)
+            return False
+        raise
+
+def generate_video_variants(job_id: str, video_path: str, hook_text: str):
+    try:
+        abs_video_path = video_path
+        if video_path.startswith("/static/"):
+            abs_video_path = os.path.join(BASE_DIR, video_path.lstrip("/"))
+        if not os.path.exists(abs_video_path):
+            update_job_status(job_id, "FAILED", 0, f"Source video not found at {abs_video_path}")
+            return
+
+        update_job_status(job_id, "PROCESSING", 10, "Preparing platform variants (9:16, 1:1, 16:9)...")
+        assets_dir = os.path.join(BASE_DIR, "static", "assets", "generated")
+        os.makedirs(assets_dir, exist_ok=True)
+        font_path = get_font_path()
+        if not font_path:
+            logger.warning("No font found for text overlay — variants will render without burned-in hook text.")
+
+        variants = {}
+        text_applied = True
+        specs = [
+            ("vertical_9x16", 1080, 1920, 320, 30, "Rendering 9:16 vertical (Reels/TikTok/Shorts)..."),
+            ("square_1x1", 1080, 1080, 220, 60, "Rendering 1:1 square (feed post)..."),
+            ("landscape_16x9", 1920, 1080, 160, 90, "Rendering 16:9 landscape with hook text..."),
+        ]
+        for key, w, h, y_offset, progress, message in specs:
+            update_job_status(job_id, "PROCESSING", progress, message)
+            out_path = os.path.join(assets_dir, f"{job_id}_{key}.mp4")
+            applied = render_variant_with_fallback(abs_video_path, out_path, w, h, hook_text, font_path, y_offset)
+            text_applied = text_applied and applied
+            variants[key] = f"/static/assets/generated/{job_id}_{key}.mp4"
+
+        message = "Platform variants ready!" if text_applied else "Platform variants ready (text overlay unsupported by this server's ffmpeg build, rendered without it)."
+        update_job_status(
+            job_id, "SUCCESS", 100, message,
+            result={"variants": variants, "captioned": text_applied}
+        )
+    except Exception as e:
+        logger.exception("Error generating video variants")
+        update_job_status(job_id, "FAILED", 0, f"Video variant generation failed: {str(e)}")
+
+def generate_virality_score(post_text: str, video_prompt: str, platform: str, settings: Dict[str, Any]) -> ViralityScore:
+    api_key = settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("Missing Gemini API Key. Please configure it in Settings.")
+
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60000))
+    prompt = f"""
+    You are a social media virality analyst. Score the predicted virality potential of this post on a 0-100 scale, where 100 is maximum viral potential.
+
+    Platform: {platform}
+    Post copy: {post_text}
+    Video concept / motion prompt: {video_prompt}
+
+    Consider: hook strength in the first line, emotional resonance, visual novelty/spectacle described in the
+    video prompt, shareability, and alignment with what's currently trending in AI-generated video content.
+    Provide a numeric score, brief reasoning, and 2-4 concrete, specific suggestions to increase the score.
+    """
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=ViralityScore,
+            system_instruction="You are an expert social media virality predictor and growth strategist."
+        )
+    )
+    try:
+        return response.parsed
+    except Exception as e:
+        logger.error(f"Failed to parse virality score: {e}. Raw text: {response.text}")
+        raise ValueError("Failed to parse virality score from Gemini.")
+
+class DraftedReply(BaseModel):
+    reply_text: str = Field(description="A short, in-character reply under 280 characters, written in the brand voice, that directly addresses the mention.")
+
+def draft_engagement_reply(mention_text: str, mention_author: str, settings: Dict[str, Any]) -> str:
+    api_key = settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("Missing Gemini API Key. Please configure it in Settings.")
+
+    brand_voice = settings.get("brand_voice", "")
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60000))
+    prompt = f"""
+    You are 6Frame Studio's social media community manager, replying to a mention on Twitter/X.
+
+    ### BRAND VOICE GUIDELINES
+    {brand_voice}
+
+    ### THE MENTION
+    From @{mention_author}: "{mention_text}"
+
+    Draft a short, warm, genuine reply (under 280 characters) in the brand voice above. Directly address
+    what they said — do not write a generic thank-you. No hashtags unless truly natural. No markdown.
+    """
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=DraftedReply,
+            system_instruction="You are a warm, on-brand social media community manager who writes concise replies."
+        )
+    )
+    try:
+        return response.parsed.reply_text
+    except Exception as e:
+        logger.error(f"Failed to parse drafted reply: {e}. Raw text: {response.text}")
+        raise ValueError("Failed to parse drafted reply from Gemini.")
 
 class RepurposedContent(BaseModel):
     author: str = Field(description="Creator's username/channel name")

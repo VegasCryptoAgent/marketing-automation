@@ -93,11 +93,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function updateDiagnosticBadges(data) {
-        const geminiEl = document.getElementById("diag-gemini-status");
-        const runwayEl = document.getElementById("diag-runway-status");
-        const twitterEl = document.getElementById("diag-twitter-status");
-        const linkedinEl = document.getElementById("diag-linkedin-status");
-
         const setActive = (el, active) => {
             if (!el) return;
             if (active) {
@@ -111,10 +106,15 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         };
 
-        setActive(geminiEl, !!data.gemini_api_key);
-        setActive(runwayEl, !!data.runway_api_key);
-        setActive(twitterEl, !!(data.twitter_consumer_key && data.twitter_consumer_secret && data.twitter_access_token && data.twitter_access_token_secret));
-        setActive(linkedinEl, !!data.linkedin_access_token);
+        setActive(document.getElementById("diag-gemini-status"), !!data.gemini_api_key);
+        setActive(document.getElementById("diag-runway-status"), !!data.runway_api_key);
+        setActive(document.getElementById("diag-twitter-status"), !!(data.twitter_consumer_key && data.twitter_consumer_secret && data.twitter_access_token && data.twitter_access_token_secret));
+        setActive(document.getElementById("diag-linkedin-status"), !!data.linkedin_access_token);
+        setActive(document.getElementById("diag-instagram-status"), !!(data.instagram_access_token && data.instagram_business_account_id));
+        setActive(document.getElementById("diag-tiktok-status"), !!data.tiktok_access_token);
+        setActive(document.getElementById("diag-youtube-status"), !!(data.youtube_client_id && data.youtube_client_secret && data.youtube_refresh_token));
+        setActive(document.getElementById("diag-facebook-status"), !!(data.facebook_page_access_token && data.facebook_page_id));
+        setActive(document.getElementById("diag-threads-status"), !!(data.threads_access_token && data.threads_user_id));
     }
 
     function fetchSettings() {
@@ -134,12 +134,33 @@ document.addEventListener("DOMContentLoaded", () => {
                 liPersonUrn.value = data.linkedin_person_urn;
                 
                 // Autonomous settings
+                const platforms = data.autonomous_platforms || [];
                 document.getElementById("autonomous-posting").checked = data.autonomous_posting || false;
                 document.getElementById("autonomous-hour").value = data.autonomous_hour || 9;
-                document.getElementById("auto-platform-twitter").checked = data.autonomous_platforms ? data.autonomous_platforms.includes("twitter") : true;
-                document.getElementById("auto-platform-linkedin").checked = data.autonomous_platforms ? data.autonomous_platforms.includes("linkedin") : true;
+                document.getElementById("auto-platform-twitter").checked = platforms.includes("twitter");
+                document.getElementById("auto-platform-linkedin").checked = platforms.includes("linkedin");
+                document.getElementById("auto-platform-instagram").checked = platforms.includes("instagram");
+                document.getElementById("auto-platform-tiktok").checked = platforms.includes("tiktok");
+                document.getElementById("auto-platform-youtube").checked = platforms.includes("youtube");
+                document.getElementById("auto-platform-facebook").checked = platforms.includes("facebook");
+                document.getElementById("auto-platform-threads").checked = platforms.includes("threads");
                 document.getElementById("autonomous-video-engine").value = data.autonomous_video_engine || "runway_gen3";
                 document.getElementById("autonomous-video-duration").value = data.autonomous_video_duration || 10;
+                document.getElementById("require-autopilot-approval").checked = data.require_autopilot_approval !== false;
+
+                // Additional platform credentials (modal)
+                document.getElementById("public-base-url").value = data.public_base_url || "";
+                document.getElementById("instagram-access-token").value = data.instagram_access_token || "";
+                document.getElementById("instagram-business-account-id").value = data.instagram_business_account_id || "";
+                document.getElementById("facebook-page-access-token").value = data.facebook_page_access_token || "";
+                document.getElementById("facebook-page-id").value = data.facebook_page_id || "";
+                document.getElementById("tiktok-client-key").value = data.tiktok_client_key || "";
+                document.getElementById("tiktok-access-token").value = data.tiktok_access_token || "";
+                document.getElementById("youtube-client-id").value = data.youtube_client_id || "";
+                document.getElementById("youtube-client-secret").value = data.youtube_client_secret || "";
+                document.getElementById("youtube-refresh-token").value = data.youtube_refresh_token || "";
+                document.getElementById("threads-access-token").value = data.threads_access_token || "";
+                document.getElementById("threads-user-id").value = data.threads_user_id || "";
 
                 // Cockpit inputs
                 document.getElementById("cockpit-mock-mode").checked = data.mock_mode;
@@ -149,11 +170,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 document.getElementById("cockpit-autonomous-posting").checked = data.autonomous_posting || false;
                 document.getElementById("cockpit-autonomous-hour").value = data.autonomous_hour || 9;
-                document.getElementById("cockpit-auto-platform-twitter").checked = data.autonomous_platforms ? data.autonomous_platforms.includes("twitter") : true;
-                document.getElementById("cockpit-auto-platform-linkedin").checked = data.autonomous_platforms ? data.autonomous_platforms.includes("linkedin") : true;
+                document.getElementById("cockpit-auto-platform-twitter").checked = platforms.includes("twitter");
+                document.getElementById("cockpit-auto-platform-linkedin").checked = platforms.includes("linkedin");
+                document.getElementById("cockpit-auto-platform-instagram").checked = platforms.includes("instagram");
+                document.getElementById("cockpit-auto-platform-tiktok").checked = platforms.includes("tiktok");
+                document.getElementById("cockpit-auto-platform-youtube").checked = platforms.includes("youtube");
+                document.getElementById("cockpit-auto-platform-facebook").checked = platforms.includes("facebook");
+                document.getElementById("cockpit-auto-platform-threads").checked = platforms.includes("threads");
                 document.getElementById("cockpit-autonomous-video-engine").value = data.autonomous_video_engine || "runway_gen3";
                 document.getElementById("cockpit-autonomous-video-duration").value = data.autonomous_video_duration || 10;
-                
+                document.getElementById("cockpit-require-approval").checked = data.require_autopilot_approval !== false;
+
                 // Wizard toggle
                 document.getElementById("wizard-autonomous-posting").checked = data.autonomous_posting || false;
 
@@ -166,10 +193,34 @@ document.addEventListener("DOMContentLoaded", () => {
             });
     }
 
+    // Shared across both save handlers (modal + cockpit)
+    function collectAutoPlatforms(prefix) {
+        const names = ["twitter", "linkedin", "instagram", "tiktok", "youtube", "facebook", "threads"];
+        return names.filter(name => {
+            const el = document.getElementById(`${prefix}-${name}`);
+            return el && el.checked;
+        });
+    }
+
+    function collectAdditionalPlatformCreds() {
+        return {
+            public_base_url: document.getElementById("public-base-url").value,
+            instagram_access_token: document.getElementById("instagram-access-token").value,
+            instagram_business_account_id: document.getElementById("instagram-business-account-id").value,
+            facebook_page_access_token: document.getElementById("facebook-page-access-token").value,
+            facebook_page_id: document.getElementById("facebook-page-id").value,
+            tiktok_client_key: document.getElementById("tiktok-client-key").value,
+            tiktok_access_token: document.getElementById("tiktok-access-token").value,
+            youtube_client_id: document.getElementById("youtube-client-id").value,
+            youtube_client_secret: document.getElementById("youtube-client-secret").value,
+            youtube_refresh_token: document.getElementById("youtube-refresh-token").value,
+            threads_access_token: document.getElementById("threads-access-token").value,
+            threads_user_id: document.getElementById("threads-user-id").value
+        };
+    }
+
     saveSettingsBtn.addEventListener("click", () => {
-        const autoPlatforms = [];
-        if (document.getElementById("auto-platform-twitter").checked) autoPlatforms.push("twitter");
-        if (document.getElementById("auto-platform-linkedin").checked) autoPlatforms.push("linkedin");
+        const autoPlatforms = collectAutoPlatforms("auto-platform");
 
         const payload = {
             gemini_api_key: geminiKeyInput.value,
@@ -186,7 +237,9 @@ document.addEventListener("DOMContentLoaded", () => {
             autonomous_hour: parseInt(document.getElementById("autonomous-hour").value, 10),
             autonomous_platforms: autoPlatforms,
             autonomous_video_engine: document.getElementById("autonomous-video-engine").value,
-            autonomous_video_duration: parseInt(document.getElementById("autonomous-video-duration").value, 10)
+            autonomous_video_duration: parseInt(document.getElementById("autonomous-video-duration").value, 10),
+            require_autopilot_approval: document.getElementById("require-autopilot-approval").checked,
+            ...collectAdditionalPlatformCreds()
         };
 
         fetch("/api/settings", {
@@ -1517,6 +1570,121 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
+    /* ==========================================================================
+       VIRALITY SCORE & PLATFORM VARIANTS (trend workspace)
+       ========================================================================== */
+    const trendViralityBtn = document.getElementById("trend-virality-score-btn");
+    const trendViralityResult = document.getElementById("trend-virality-result");
+    const trendGenerateVariantsBtn = document.getElementById("trend-generate-variants-btn");
+    const trendVariantsLoading = document.getElementById("trend-variants-loading");
+    const trendVariantsStatusMsg = document.getElementById("trend-variants-status-msg");
+    const trendVariantsResult = document.getElementById("trend-variants-result");
+
+    if (trendViralityBtn) {
+        trendViralityBtn.addEventListener("click", () => {
+            if (!currentSelectedTrend) { showToast("Select a trend first.", true); return; }
+            trendViralityBtn.disabled = true;
+            trendViralityBtn.textContent = "Scoring...";
+            fetch("/api/virality-score", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    post_text: currentSelectedTrend.recreated_linkedin_post || "",
+                    video_prompt: currentSelectedTrend.recreated_video_prompt || "",
+                    platform: "Twitter/X and LinkedIn"
+                })
+            })
+            .then(res => { if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "Failed to score virality") }); return res.json(); })
+            .then(data => {
+                const d = data.data;
+                document.getElementById("trend-virality-score-value").textContent = `${d.score}/100`;
+                document.getElementById("trend-virality-reasoning").textContent = d.reasoning;
+                const ul = document.getElementById("trend-virality-suggestions");
+                ul.innerHTML = "";
+                (d.suggested_improvements || []).forEach(s => {
+                    const li = document.createElement("li");
+                    li.textContent = s;
+                    ul.appendChild(li);
+                });
+                trendViralityResult.classList.remove("hidden");
+            })
+            .catch(err => showToast(err.message, true))
+            .finally(() => {
+                trendViralityBtn.disabled = false;
+                trendViralityBtn.textContent = "Get Virality Score";
+            });
+        });
+    }
+
+    if (trendGenerateVariantsBtn) {
+        trendGenerateVariantsBtn.addEventListener("click", () => {
+            const trendId = trendTitleHeader.textContent;
+            const videoPath = trendVideoMap[trendId];
+            if (!videoPath) { showToast("Generate a video first before creating platform variants.", true); return; }
+
+            trendGenerateVariantsBtn.disabled = true;
+            trendVariantsLoading.classList.remove("hidden");
+            trendVariantsResult.classList.add("hidden");
+            trendVariantsResult.innerHTML = "";
+
+            const hookText = currentSelectedTrend ? (currentSelectedTrend.title || "") : "";
+
+            fetch("/api/generate-video-variants", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ video_path: videoPath, hook_text: hookText })
+            })
+            .then(res => { if (!res.ok) throw new Error("Failed to start variant generation"); return res.json(); })
+            .then(data => pollVariantsStatus(data.job_id))
+            .catch(err => {
+                showToast(err.message, true);
+                trendGenerateVariantsBtn.disabled = false;
+                trendVariantsLoading.classList.add("hidden");
+            });
+        });
+    }
+
+    function pollVariantsStatus(jobId) {
+        const interval = setInterval(() => {
+            fetch(`/api/video-variants-status/${jobId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "PENDING" || data.status === "PROCESSING") {
+                        trendVariantsStatusMsg.textContent = `${data.message} (${data.progress}%)`;
+                    } else if (data.status === "SUCCESS") {
+                        clearInterval(interval);
+                        trendVariantsLoading.classList.add("hidden");
+                        trendGenerateVariantsBtn.disabled = false;
+                        showToast("Platform variants ready!");
+                        const variants = data.result.variants;
+                        trendVariantsResult.innerHTML = "";
+                        const labels = { vertical_9x16: "9:16 Vertical (Reels/TikTok/Shorts)", square_1x1: "1:1 Square", landscape_16x9: "16:9 Landscape" };
+                        Object.entries(variants).forEach(([key, path]) => {
+                            const a = document.createElement("a");
+                            a.href = path;
+                            a.download = true;
+                            a.className = "secondary-btn";
+                            a.style.cssText = "display:block; text-decoration:none; text-align:center; font-size:0.7rem; padding:0.4rem;";
+                            a.textContent = `Download ${labels[key] || key}`;
+                            trendVariantsResult.appendChild(a);
+                        });
+                        trendVariantsResult.classList.remove("hidden");
+                    } else if (data.status === "FAILED") {
+                        clearInterval(interval);
+                        trendVariantsLoading.classList.add("hidden");
+                        trendGenerateVariantsBtn.disabled = false;
+                        showToast(`Variant generation failed: ${data.message}`, true);
+                    }
+                })
+                .catch(() => {
+                    clearInterval(interval);
+                    trendVariantsLoading.classList.add("hidden");
+                    trendGenerateVariantsBtn.disabled = false;
+                    showToast("Variant generation polling error.", true);
+                });
+        }, 4000);
+    }
+
     function pollVideoStatus(jobId, type, id) {
         const interval = setInterval(() => {
             fetch(`/api/video-status/${jobId}`)
@@ -1616,9 +1784,12 @@ document.addEventListener("DOMContentLoaded", () => {
             
             const formatPlatform = (p) => {
                 if (p === "both") return "X & LinkedIn";
-                if (p === "twitter") return "Twitter / X";
-                if (p === "linkedin") return "LinkedIn";
-                return p;
+                if (p === "all") return "All Platforms";
+                const labels = {
+                    twitter: "Twitter / X", linkedin: "LinkedIn", instagram: "Instagram",
+                    tiktok: "TikTok", youtube: "YouTube", facebook: "Facebook", threads: "Threads"
+                };
+                return p.split(",").map(part => labels[part.trim()] || part.trim()).join(", ");
             };
             
             const formatTime = (t) => {
@@ -1660,6 +1831,289 @@ document.addEventListener("DOMContentLoaded", () => {
             `;
             
             container.appendChild(item);
+        });
+    }
+
+    /* ==========================================================================
+       PENDING APPROVAL QUEUE (Autopilot guardrail review step)
+       ========================================================================== */
+    const pendingApprovalList = document.getElementById("pending-approval-list");
+    const pendingApprovalCount = document.getElementById("pending-approval-count");
+
+    function fetchApprovalQueue() {
+        if (!pendingApprovalList) return;
+        // Don't clobber an in-progress edit: skip this poll if focus is inside the queue.
+        if (pendingApprovalList.contains(document.activeElement)) return;
+        fetch("/api/approval-queue")
+            .then(res => res.json())
+            .then(posts => renderApprovalQueue(posts))
+            .catch(err => console.error("Error fetching approval queue:", err));
+    }
+
+    function renderApprovalQueue(posts) {
+        if (pendingApprovalCount) pendingApprovalCount.textContent = posts.length;
+        if (!posts || posts.length === 0) {
+            pendingApprovalList.innerHTML = `<p style="font-size: 0.75rem; color: var(--text-secondary); text-align: center; margin: 0.5rem 0;">No posts awaiting approval.</p>`;
+            return;
+        }
+        pendingApprovalList.innerHTML = "";
+        posts.forEach(post => {
+            const card = document.createElement("div");
+            card.style.cssText = "background: rgba(0,0,0,0.2); border: 1px solid rgba(255,193,7,0.2); border-radius: 8px; padding: 1rem;";
+            const threadHtml = (post.thread || []).map((t, idx) => `Tweet ${idx + 1}: ${t}`).join("\n\n");
+            card.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem; margin-bottom:0.5rem;">
+                    <strong style="font-size:0.85rem; color:var(--text-primary);">${post.campaign_title || 'Autopilot Pick'}</strong>
+                    <span style="font-size:0.65rem; color:var(--text-secondary);">${post.platform}</span>
+                </div>
+                ${post.video_path ? `<video src="${post.video_path}" controls style="width:100%; max-width:320px; border-radius:6px; margin-bottom:0.5rem; display:block;"></video>` : ''}
+                <label style="font-size:0.65rem; color:var(--text-secondary); display:block; margin-bottom:0.2rem;">LinkedIn / primary copy</label>
+                <textarea class="approval-text-edit" data-id="${post.id}" rows="4" style="width:100%; background:rgba(0,0,0,0.35); border:1px solid var(--border-color); color:var(--text-primary); border-radius:6px; padding:0.5rem; font-size:0.75rem; margin-bottom:0.5rem;">${post.text || ''}</textarea>
+                ${post.thread ? `
+                <label style="font-size:0.65rem; color:var(--text-secondary); display:block; margin-bottom:0.2rem;">Twitter/X thread</label>
+                <textarea class="approval-thread-edit" data-id="${post.id}" rows="4" style="width:100%; background:rgba(0,0,0,0.35); border:1px solid var(--border-color); color:var(--text-primary); border-radius:6px; padding:0.5rem; font-size:0.75rem; margin-bottom:0.5rem;">${threadHtml}</textarea>
+                ` : ''}
+                <div style="display:flex; gap:0.5rem;">
+                    <button class="secondary-btn approval-save-btn" data-id="${post.id}" style="flex:1; font-size:0.75rem; padding:0.4rem;">Save Edits</button>
+                    <button class="secondary-btn approval-reject-btn" data-id="${post.id}" style="flex:1; font-size:0.75rem; padding:0.4rem; color:#ff6b6b;">Reject</button>
+                    <button class="primary-btn approval-approve-btn" data-id="${post.id}" style="flex:1.5; font-size:0.75rem; padding:0.4rem;">Approve &amp; Publish</button>
+                </div>
+            `;
+            pendingApprovalList.appendChild(card);
+        });
+    }
+
+    /* ==========================================================================
+       PERFORMANCE ANALYTICS (feedback loop)
+       ========================================================================== */
+    const analyticsPostsList = document.getElementById("analytics-posts-list");
+    const analyticsBestHour = document.getElementById("analytics-best-hour");
+    const analyticsApplyHourBtn = document.getElementById("analytics-apply-hour-btn");
+    const analyticsRefreshBtn = document.getElementById("analytics-refresh-btn");
+    let analyticsRecommendedHour = null;
+
+    function formatHourLabel(h) {
+        const period = h >= 12 ? "PM" : "AM";
+        const displayHour = h % 12 === 0 ? 12 : h % 12;
+        return `${displayHour}:00 ${period}`;
+    }
+
+    function fetchAnalyticsSummary() {
+        if (!analyticsPostsList) return;
+        fetch("/api/analytics/summary")
+            .then(res => res.json())
+            .then(data => renderAnalyticsSummary(data))
+            .catch(err => console.error("Error fetching analytics summary:", err));
+    }
+
+    function renderAnalyticsSummary(data) {
+        if (data.best_hour !== null && data.best_hour !== undefined) {
+            analyticsRecommendedHour = data.best_hour;
+            analyticsBestHour.textContent = `${formatHourLabel(data.best_hour)} (${data.sample_size} post${data.sample_size === 1 ? '' : 's'} analyzed)`;
+            if (analyticsApplyHourBtn) analyticsApplyHourBtn.disabled = false;
+        } else {
+            analyticsRecommendedHour = null;
+            analyticsBestHour.textContent = "Not enough data yet";
+            if (analyticsApplyHourBtn) analyticsApplyHourBtn.disabled = true;
+        }
+
+        if (!data.posts || data.posts.length === 0) {
+            analyticsPostsList.innerHTML = `<p style="font-size: 0.75rem; color: var(--text-secondary); text-align: center; margin: 0.5rem 0;">No performance data yet — publish a post and check back after it's had time to gather engagement.</p>`;
+            return;
+        }
+
+        analyticsPostsList.innerHTML = "";
+        data.posts.slice(0, 10).forEach(post => {
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.15); border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:0.5rem 0.75rem; font-size:0.75rem;";
+            const m = post.metrics || {};
+            row.innerHTML = `
+                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:45%; color:var(--text-primary);" title="${post.campaign_title || ''}">${post.campaign_title || 'Post'}</span>
+                <span style="color:var(--text-secondary);">❤ ${m.like_count || 0} · 🔁 ${m.retweet_count || 0} · 💬 ${m.reply_count || 0}</span>
+                <span style="color: var(--purple-light, var(--primary-color)); font-weight:600;">Score: ${post.engagement_score}</span>
+            `;
+            analyticsPostsList.appendChild(row);
+        });
+    }
+
+    if (analyticsRefreshBtn) {
+        analyticsRefreshBtn.addEventListener("click", () => {
+            analyticsRefreshBtn.disabled = true;
+            analyticsRefreshBtn.textContent = "Refreshing...";
+            fetch("/api/analytics/refresh", { method: "POST" })
+                .then(res => { if (!res.ok) throw new Error("Failed to trigger refresh"); return res.json(); })
+                .then(() => {
+                    showToast("Metrics refresh triggered — results may take a few seconds.");
+                    setTimeout(fetchAnalyticsSummary, 3000);
+                })
+                .catch(err => showToast(err.message, true))
+                .finally(() => {
+                    analyticsRefreshBtn.disabled = false;
+                    analyticsRefreshBtn.textContent = "Refresh Metrics";
+                });
+        });
+    }
+
+    if (analyticsApplyHourBtn) {
+        analyticsApplyHourBtn.addEventListener("click", () => {
+            if (analyticsRecommendedHour === null) return;
+            fetch("/api/analytics/apply-best-hour", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ hour: analyticsRecommendedHour })
+            })
+            .then(res => { if (!res.ok) throw new Error("Failed to apply recommended hour"); return res.json(); })
+            .then((data) => { showToast(data.message); fetchSettings(); })
+            .catch(err => showToast(err.message, true));
+        });
+    }
+
+    /* ==========================================================================
+       ENGAGEMENT INBOX (AI-drafted mention replies)
+       ========================================================================== */
+    const engagementList = document.getElementById("engagement-list");
+    const engagementCount = document.getElementById("engagement-count");
+    const engagementRefreshBtn = document.getElementById("engagement-refresh-btn");
+
+    function fetchEngagementQueue() {
+        if (!engagementList) return;
+        if (engagementList.contains(document.activeElement)) return;
+        fetch("/api/engagement-queue")
+            .then(res => res.json())
+            .then(items => renderEngagementQueue(items))
+            .catch(err => console.error("Error fetching engagement queue:", err));
+    }
+
+    function renderEngagementQueue(items) {
+        if (engagementCount) engagementCount.textContent = items.length;
+        if (!items || items.length === 0) {
+            engagementList.innerHTML = `<p style="font-size: 0.75rem; color: var(--text-secondary); text-align: center; margin: 0.5rem 0;">No new mentions to review.</p>`;
+            return;
+        }
+        engagementList.innerHTML = "";
+        items.forEach(item => {
+            const card = document.createElement("div");
+            card.style.cssText = "background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.9rem;";
+            card.innerHTML = `
+                <p style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                    <strong style="color: var(--text-primary);">@${item.source_author}</strong> wrote: "${item.source_text}"
+                </p>
+                <textarea class="engagement-reply-edit" data-id="${item.id}" rows="2" style="width:100%; background:rgba(0,0,0,0.35); border:1px solid var(--border-color); color:var(--text-primary); border-radius:6px; padding:0.5rem; font-size:0.75rem; margin-bottom:0.5rem;">${item.drafted_reply}</textarea>
+                <div style="display:flex; gap:0.5rem;">
+                    <button class="secondary-btn engagement-save-btn" data-id="${item.id}" style="flex:1; font-size:0.7rem; padding:0.4rem;">Save Edit</button>
+                    <button class="secondary-btn engagement-dismiss-btn" data-id="${item.id}" style="flex:1; font-size:0.7rem; padding:0.4rem; color:#ff6b6b;">Dismiss</button>
+                    <button class="primary-btn engagement-send-btn" data-id="${item.id}" style="flex:1.5; font-size:0.7rem; padding:0.4rem;">Send Reply</button>
+                </div>
+            `;
+            engagementList.appendChild(card);
+        });
+    }
+
+    if (engagementRefreshBtn) {
+        engagementRefreshBtn.addEventListener("click", () => {
+            engagementRefreshBtn.disabled = true;
+            engagementRefreshBtn.textContent = "Checking...";
+            fetch("/api/engagement-queue/refresh", { method: "POST" })
+                .then(res => { if (!res.ok) throw new Error("Failed to check for mentions"); return res.json(); })
+                .then(() => {
+                    showToast("Checking for new mentions — results may take a few seconds.");
+                    setTimeout(fetchEngagementQueue, 4000);
+                })
+                .catch(err => showToast(err.message, true))
+                .finally(() => {
+                    engagementRefreshBtn.disabled = false;
+                    engagementRefreshBtn.textContent = "Check for New Mentions";
+                });
+        });
+    }
+
+    if (engagementList) {
+        engagementList.addEventListener("click", (e) => {
+            const id = e.target.dataset.id;
+            if (!id) return;
+            const card = e.target.closest("div").parentElement;
+
+            if (e.target.classList.contains("engagement-save-btn")) {
+                const textEl = card.querySelector(".engagement-reply-edit");
+                fetch(`/api/engagement-queue/${id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ reply_text: textEl.value })
+                })
+                .then(res => { if (!res.ok) throw new Error("Failed to save edit"); return res.json(); })
+                .then(() => showToast("Draft reply updated."))
+                .catch(err => showToast(err.message, true));
+            }
+
+            if (e.target.classList.contains("engagement-dismiss-btn")) {
+                e.target.disabled = true;
+                fetch(`/api/engagement-queue/${id}/dismiss`, { method: "POST" })
+                    .then(res => { if (!res.ok) throw new Error("Failed to dismiss reply"); return res.json(); })
+                    .then(() => { showToast("Reply dismissed."); fetchEngagementQueue(); })
+                    .catch(err => { showToast(err.message, true); e.target.disabled = false; });
+            }
+
+            if (e.target.classList.contains("engagement-send-btn")) {
+                if (!confirm("Send this reply now?")) return;
+                e.target.disabled = true;
+                e.target.textContent = "Sending...";
+                fetch(`/api/engagement-queue/${id}/send`, { method: "POST" })
+                    .then(res => { if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "Failed to send reply") }); return res.json(); })
+                    .then((data) => { showToast(data.message || "Reply sent!"); fetchEngagementQueue(); })
+                    .catch(err => {
+                        showToast(err.message, true);
+                        e.target.disabled = false;
+                        e.target.textContent = "Send Reply";
+                    });
+            }
+        });
+    }
+
+    if (pendingApprovalList) {
+        pendingApprovalList.addEventListener("click", (e) => {
+            const id = e.target.dataset.id;
+            if (!id) return;
+
+            if (e.target.classList.contains("approval-save-btn")) {
+                const card = e.target.closest("div").parentElement;
+                const textEl = card.querySelector(".approval-text-edit");
+                const threadEl = card.querySelector(".approval-thread-edit");
+                const payload = { text: textEl ? textEl.value : undefined };
+                if (threadEl) {
+                    payload.thread = threadEl.value.split(/\n\s*\n/).map(t => t.replace(/^Tweet \d+:\s*/, "").trim()).filter(Boolean);
+                }
+                fetch(`/api/approval-queue/${id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                })
+                .then(res => { if (!res.ok) throw new Error("Failed to save edits"); return res.json(); })
+                .then(() => showToast("Draft updated."))
+                .catch(err => showToast(err.message, true));
+            }
+
+            if (e.target.classList.contains("approval-reject-btn")) {
+                if (!confirm("Reject this autopilot pick? It will not be published.")) return;
+                e.target.disabled = true;
+                fetch(`/api/approval-queue/${id}/reject`, { method: "POST" })
+                    .then(res => { if (!res.ok) throw new Error("Failed to reject post"); return res.json(); })
+                    .then(() => { showToast("Post rejected."); fetchApprovalQueue(); fetchScheduledQueue(); })
+                    .catch(err => { showToast(err.message, true); e.target.disabled = false; });
+            }
+
+            if (e.target.classList.contains("approval-approve-btn")) {
+                if (!confirm("Publish this autopilot pick now?")) return;
+                e.target.disabled = true;
+                e.target.textContent = "Publishing...";
+                fetch(`/api/approval-queue/${id}/approve`, { method: "POST" })
+                    .then(res => { if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "Failed to approve post") }); return res.json(); })
+                    .then((data) => { showToast(data.message || "Post approved and published!"); fetchApprovalQueue(); fetchScheduledQueue(); })
+                    .catch(err => {
+                        showToast(err.message, true);
+                        e.target.disabled = false;
+                        e.target.textContent = "Approve & Publish";
+                    });
+            }
         });
     }
 
@@ -1838,9 +2292,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const cockpitSaveBtn = document.getElementById("cockpit-save-settings-btn");
     if (cockpitSaveBtn) {
         cockpitSaveBtn.addEventListener("click", () => {
-            const autoPlatforms = [];
-            if (document.getElementById("cockpit-auto-platform-twitter").checked) autoPlatforms.push("twitter");
-            if (document.getElementById("cockpit-auto-platform-linkedin").checked) autoPlatforms.push("linkedin");
+            const autoPlatforms = collectAutoPlatforms("cockpit-auto-platform");
 
             const payload = {
                 gemini_api_key: document.getElementById("cockpit-gemini-key").value,
@@ -1857,7 +2309,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 autonomous_hour: parseInt(document.getElementById("cockpit-autonomous-hour").value, 10),
                 autonomous_platforms: autoPlatforms,
                 autonomous_video_engine: document.getElementById("cockpit-autonomous-video-engine").value,
-                autonomous_video_duration: parseInt(document.getElementById("cockpit-autonomous-video-duration").value, 10)
+                autonomous_video_duration: parseInt(document.getElementById("cockpit-autonomous-video-duration").value, 10),
+                require_autopilot_approval: document.getElementById("cockpit-require-approval").checked,
+                ...collectAdditionalPlatformCreds()
             };
 
             cockpitSaveBtn.disabled = true;
@@ -2292,5 +2746,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Initial load and polling setup
     fetchScheduledQueue();
+    fetchApprovalQueue();
+    fetchAnalyticsSummary();
+    fetchEngagementQueue();
     setInterval(fetchScheduledQueue, 10000);
+    setInterval(fetchApprovalQueue, 10000);
+    setInterval(fetchAnalyticsSummary, 30000);
+    setInterval(fetchEngagementQueue, 30000);
 });
