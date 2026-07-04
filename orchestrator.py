@@ -46,13 +46,13 @@ class ViralConcept(BaseModel):
     author: str = Field(description="The username, channel name or author of the content")
     title: str = Field(description="Summary or title of the trending/viral content")
     viral_metrics: str = Field(description="Engagement metrics, e.g. views, likes, retweets, comments, or general virality notes")
-    original_concept: str = Field(description="Detailed description of the original video contents, editing technique, and visual style")
-    studio_adaptation_concept: str = Field(description="How 6Frame Studio can recreate this cinematic/VFX concept with our own style")
-    recreated_video_prompt: str = Field(description="The Image-to-Video motion prompt for Runway Gen-3/Kling/Luma to render 6Frame Studio's version")
-    recreated_linkedin_post: str = Field(description="Staged B2B LinkedIn post copy for 6Frame Studio")
-    recreated_twitter_thread: List[str] = Field(description="Staged Twitter thread copy for 6Frame Studio (2-3 tweets, under 280 chars each)")
-    recreated_instagram_caption: str = Field(description="Staged Instagram caption copy for 6Frame Studio with hashtags")
-    original_post_text: str = Field(description="Reconstructed or summarized text/copy of the original viral post")
+    original_concept: str = Field(description="Detailed description of the original video's exact visual content: subject, camera movement, editing technique, and pacing.")
+    studio_adaptation_concept: str = Field(description="The literal recreation plan: how 6Frame Studio will recreate this SAME viral video shot-for-shot (same subject, scene, and motion), finished in 6Frame Studio's premium cinematic style.")
+    recreated_video_prompt: str = Field(description="A precise Image-to-Video/Text-to-Video motion prompt that recreates the SAME viral video as closely as possible (same subject, camera motion, lighting, pacing) — not a new or loosely-inspired concept.")
+    recreated_linkedin_post: str = Field(description="The ORIGINAL viral post's LinkedIn copy, reworded in 6Frame Studio's brand voice — same core message, hook, and story — framed as 6Frame Studio's own recreation, crediting the original creator's handle.")
+    recreated_twitter_thread: List[str] = Field(description="The ORIGINAL viral post reworded as a Twitter/X thread in 6Frame Studio's brand voice (2-3 tweets, under 280 chars each) — same message and hook as the original, just reworded and credited.")
+    recreated_instagram_caption: str = Field(description="The ORIGINAL viral post reworded as an Instagram caption in 6Frame Studio's brand voice, keeping the same core message and hook, with hashtags.")
+    original_post_text: str = Field(description="Reconstructed or summarized text/copy of the original viral post — the source material the recreated_* copy fields are reworded from.")
 
 
 class ViralSearchResponse(BaseModel):
@@ -279,59 +279,74 @@ def run_live_trend_scanner(
             update_job_status(job_id, "FAILED", 0, "Missing Gemini API Key. Please configure it in Settings.")
             return
 
-        update_job_status(job_id, "PROCESSING", 10, "Fetching real-time social trends and AI news feeds...")
+        update_job_status(job_id, "PROCESSING", 10, "Fetching supplementary real-time AI news context...")
         news_context = fetch_realtime_news_context()
 
-        update_job_status(job_id, "PROCESSING", 30, "Analyzing social trends context via Gemini Pro...")
-        
+        update_job_status(job_id, "PROCESSING", 20, "Searching Reddit, YouTube, Twitter/X, LinkedIn, and Instagram via Google Search grounding (last 24 hours)...")
+
         search_prompt = f"""
-        Analyze the following real-time AI news and viral social media trends context from the last 24 hours:
-
-        {news_context}
-
-        Based on this context, identify 10 highly viral or trending AI video concepts and stories. Focus specifically on categories related to 6Frame Studio's niche:
+        Search across Reddit (specifically r/aivideo, r/midjourney, r/StableDiffusion, r/ChatGPT), YouTube, Twitter/X, LinkedIn, and Instagram for the top 10 most viral or trending AI video posts from the last 24 hours.
+        Focus specifically on content in categories aligned with 6Frame Studio's niche:
         - AI filmmaking and cinematic AI trailers (e.g. Sora, Runway Gen-3, Kling, Luma, Veo)
         - AI logo animations, visual loops, and motion design
         - AI music videos and audio-visual experiments
 
+        Here is supplementary real-time AI news context you may use as additional seed material — but you must still actively search the social platforms above directly rather than relying on this alone:
+        {news_context}
+
+        To ensure video files can be downloaded and recreated successfully, you MUST prioritize returning verified YouTube watch links (e.g., https://www.youtube.com/watch?v=...) or public Reddit post links as the URL. Twitter/X, LinkedIn, and Instagram are valid as the trend's source platform and content description, but avoid using their direct post URLs since they require logins and block scraping — if a trend is only found on those platforms, search YouTube for a matching upload of the same or a highly similar clip and use that watch link instead. Do NOT generate mock usernames, fake IDs, or placeholder URLs (such as 'examplecyber', 'abcdef', 'status/12345').
+
         For each of the 10 trends identified, describe:
-        1. The EXACT source platform or publisher where it was found. Extract this from the URL domain or article title — e.g. "Reddit", "YouTube", "Twitter/X", "TechCrunch", "The Verge", "Wired", "VentureBeat", "9to5Google", "Engadget", "ArsTechnica", "MIT Technology Review", "Bloomberg", etc. DO NOT use generic labels like "public news" or "news". Use the actual website or community name.
-        2. The direct URL from the context or a related watch link. This URL MUST be a real, valid watch URL from the context. Do NOT generate mock usernames or placeholder links (like 'examplecyber', 'status/12345').
+        1. The EXACT source platform where it was found (Reddit, YouTube, Twitter/X, LinkedIn, or Instagram). DO NOT use generic labels like "public news" or "news".
+        2. The direct video URL, following the URL rules above.
         3. The author or creator's username
         4. The title/description of the video
-        5. Viral metrics (views, upvotes, or comments)
-        6. A description of the visual style and why it went viral
+        5. Viral metrics (views, likes, retweets, comments, or upvotes)
+        6. A detailed description of the exact visual content, subject, camera movement, and editing technique — and why it went viral
+        7. The reconstructed original post text/caption the creator used
         """
 
-        # Query Gemini 2.5 Flash using the fetched context (much faster than Pro, avoiding timeouts)
         client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(timeout=360000) # Prevents indefinite hangs (360s safe limit)
         )
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=search_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction="You are a real-time social media trend researcher specialized in finding trending cinematic AI contents."
+
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.5-pro',
+                contents=search_prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    system_instruction="You are a real-time social media trend researcher specialized in finding trending cinematic AI contents across Reddit, YouTube, Twitter/X, LinkedIn, and Instagram."
+                )
             )
-        )
+        except Exception as grounding_err:
+            logger.warning(f"Google Search grounding failed inside trend scanner: {grounding_err}. Falling back to news-context-only generation.")
+            update_job_status(job_id, "PROCESSING", 30, "Search grounding unavailable, falling back to AI news context...")
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=search_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction="You are a real-time social media trend researcher specialized in finding trending cinematic AI contents across Reddit, YouTube, Twitter/X, LinkedIn, and Instagram."
+                )
+            )
         search_text = response.text
 
-        update_job_status(job_id, "PROCESSING", 60, "Adapting viral concepts for 6Frame Studio (generating structured copies)...")
-        
+        update_job_status(job_id, "PROCESSING", 60, "Recreating viral posts in 6Frame Studio's voice (generating structured copies)...")
+
         adaptation_prompt = f"""
-        You are a social media copywriter for 6Frame Studio.
+        You are 6Frame Studio, literally recreating viral AI video content found across social media.
         We have researched the top 10 viral AI video trends from the last 24 hours:
 
         {search_text}
 
-        For each of these 10 trending concepts:
-        1. Keep the EXACT platform/publisher name (e.g. "TechCrunch", "Reddit", "YouTube", "The Verge"), author, title, and viral metrics. NEVER replace the platform name with "public news", "news", or any generic label. Ensure the URL is kept as a valid direct HTTP/HTTPS link to the original video source (do NOT change it to keywords or text descriptions).
-        2. Describe the original concept and visual technique.
-        3. Explain how 6Frame Studio can recreate this viral concept using their premium, cinematic, artistic style.
-        4. Write the exact Image-to-Video motion prompt to render our adapted version.
-        5. Draft the tailored social posts representing 6Frame Studio's recreation (recreated_linkedin_post, recreated_twitter_thread, recreated_instagram_caption).
-        6. Draft the original_post_text summarizing/reconstructing what the original creator's post said.
+        For each of these 10 trending concepts, your goal is a LITERAL recreation, not a loosely-inspired new idea:
+        1. Keep the EXACT platform name (Reddit, YouTube, Twitter/X, LinkedIn, or Instagram), author, title, and viral metrics. NEVER replace the platform name with "public news", "news", or any generic label. Ensure the URL is kept as a valid direct HTTP/HTTPS link to the original video source (do NOT change it to keywords or text descriptions).
+        2. Describe the original video's exact visual content, subject, camera movement, and editing technique (original_concept).
+        3. Describe the literal recreation plan: how 6Frame Studio will recreate the SAME video shot-for-shot — same subject, scene, and motion — finished in 6Frame Studio's premium cinematic style (studio_adaptation_concept).
+        4. Write a precise Image-to-Video/Text-to-Video motion prompt (recreated_video_prompt) that recreates that SAME video as closely as possible — not a new or different concept.
+        5. Reconstruct the original creator's post text/caption (original_post_text).
+        6. Reword the ORIGINAL POST TEXT itself into 6Frame Studio's brand voice for LinkedIn, a Twitter/X thread, and Instagram (recreated_linkedin_post, recreated_twitter_thread, recreated_instagram_caption). Preserve the exact same hook, excitement, and core message as the original caption — just translate its tone and wording into 6Frame Studio's cinematic, refined voice, as if 6Frame Studio itself is captioning its OWN recreated video. Do NOT write it as a reaction to, review of, or commentary about someone else's post ("We were captivated by...", "Check out this creator's..."). It must read as 6Frame Studio's own first-person post about their own video. End with one brief, secondary line crediting the original creator/trend as the inspiration (e.g. "Inspired by a viral moment from @handle on Platform").
 
         ### POST FORMATTING AND SPACING RULES (CRITICAL)
         - **Double Line Breaks**: You MUST separate all paragraphs, bullet point blocks, and commentary highlights with an empty line (double newlines `\n\n`). Do not write long blocks of single-spaced text.
@@ -349,7 +364,7 @@ def run_live_trend_scanner(
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=ViralSearchResponse,
-                system_instruction="You are an expert social media copywriter specialized in marketing high-end cinematic AI assets."
+                system_instruction="You are an expert social media copywriter specialized in recreating viral cinematic AI content for 6Frame Studio."
             )
         )
 
