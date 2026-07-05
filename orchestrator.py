@@ -62,7 +62,7 @@ class ContextBrief(BaseModel):
 
 class ViralConcept(BaseModel):
     platform: str = Field(description="Platform name, e.g. Reddit, YouTube, Twitter/X, LinkedIn, Instagram")
-    url: str = Field(description="URL to the post, video or reference search query found")
+    url: str = Field(description="The REAL direct URL of the original viral post on its source platform (e.g. instagram.com/reel/..., x.com/.../status/..., youtube.com/watch?v=..., reddit.com/r/.../comments/...), exactly as found in search results — never a substitute video from a different platform, and never invented.")
     author: str = Field(description="The username, channel name or author of the content")
     title: str = Field(description="Summary or title of the trending/viral content")
     viral_metrics: str = Field(description="Engagement metrics, e.g. views, likes, retweets, comments, or general virality notes")
@@ -233,12 +233,35 @@ def run_multi_agent_pipeline(
         logger.exception("Error in multi-agent pipeline")
         update_job_status(job_id, "FAILED", 0, f"Pipeline execution failed: {str(e)}")
 
-def check_url_valid(url: str) -> bool:
+MOCK_URL_PATTERNS = ["example", "status/1234", "DigitalDreams", "AIVoyager", "ChronoDrifter", "abcdef", "examplecyber", "dQw4w9WgXcQ", "watch?v=12345", "your_post_id"]
+
+# Platforms whose post URLs sit behind login walls: yt-dlp can't probe them, so they are
+# validated by domain match against the claimed platform instead of a download simulation.
+PLATFORM_DOMAINS = {
+    "instagram": ("instagram.com",),
+    "tiktok": ("tiktok.com",),
+    "linkedin": ("linkedin.com",),
+    "twitter": ("twitter.com", "x.com"),
+    "youtube": ("youtube.com", "youtu.be"),
+    "reddit": ("reddit.com",),
+}
+
+def check_url_valid(url: str, platform: str = "") -> bool:
     import subprocess
+    import urllib.parse as _up
     if not url or not url.startswith("http"):
         return False
-    if any(p in url for p in ["example", "status/1234", "DigitalDreams", "AIVoyager", "ChronoDrifter", "abcdef", "examplecyber", "dQw4w9WgXcQ", "watch?v=12345"]):
+    if any(p in url for p in MOCK_URL_PATTERNS):
         return False
+    host = _up.urlparse(url).netloc.lower()
+    platform_lower = (platform or "").lower()
+    for key, domains in PLATFORM_DOMAINS.items():
+        if key in platform_lower or (key == "twitter" and "x" in platform_lower.replace("twitter/x", "twitter")):
+            if not any(host == d or host.endswith("." + d) for d in domains):
+                return False  # URL domain contradicts the claimed platform
+            if key in ("youtube", "reddit"):
+                break  # downloadable platforms: also probe with yt-dlp below
+            return True  # login-walled platforms: domain match is the best possible check
     cmd = [
         get_binary_path("yt-dlp"),
         "--simulate",
@@ -250,8 +273,17 @@ def check_url_valid(url: str) -> bool:
     except:
         return False
 
-def resolve_trend_mock_url(title: str) -> str:
+def resolve_trend_mock_url(title: str, platform: str = "") -> str:
     import subprocess
+    platform_lower = (platform or "").lower()
+    # For login-walled platforms, the honest fallback is a search for the post on ITS OWN
+    # platform (via Google site-search) — never a substitute video from another platform.
+    for key, domains in PLATFORM_DOMAINS.items():
+        if key in ("youtube", "reddit"):
+            continue
+        if key in platform_lower:
+            query = urllib.parse.quote(f"site:{domains[0]} {title}")
+            return f"https://www.google.com/search?q={query}"
     cmd = [
         get_binary_path("yt-dlp"),
         "--no-playlist",
@@ -315,11 +347,11 @@ def run_live_trend_scanner(
         Here is supplementary real-time AI news context you may use as additional seed material — but you must still actively search the social platforms above directly rather than relying on this alone:
         {news_context}
 
-        To ensure video files can be downloaded and recreated successfully, you MUST prioritize returning verified YouTube watch links (e.g., https://www.youtube.com/watch?v=...) or public Reddit post links as the URL. Twitter/X, LinkedIn, and Instagram are valid as the trend's source platform and content description, but avoid using their direct post URLs since they require logins and block scraping — if a trend is only found on those platforms, search YouTube for a matching upload of the same or a highly similar clip and use that watch link instead. Do NOT generate mock usernames, fake IDs, or placeholder URLs (such as 'examplecyber', 'abcdef', 'status/12345').
+        URL RULES (CRITICAL): The URL you report for each trend MUST be the REAL, direct link to the original viral post on its source platform, exactly as it appears in your search results — an instagram.com/reel/... link for an Instagram trend, an x.com/.../status/... link for a Twitter/X trend, a youtube.com/watch?v=... link for a YouTube trend, and so on. NEVER substitute a video from a different platform, and NEVER fabricate, guess, or reconstruct a URL (no placeholder IDs like 'examplecyber', 'abcdef', 'status/12345', 'your_post_id'). If you cannot find the exact post URL in your search results, write "unknown" as the URL and still report the trend.
 
         For each of the 10 trends identified, describe:
         1. The EXACT source platform where it was found (Reddit, YouTube, Twitter/X, LinkedIn, or Instagram). DO NOT use generic labels like "public news" or "news".
-        2. The direct video URL, following the URL rules above.
+        2. The direct URL of the original post, following the URL rules above.
         3. The author or creator's username
         4. The title/description of the video
         5. Viral metrics (views, likes, retweets, comments, or upvotes)
@@ -362,7 +394,7 @@ def run_live_trend_scanner(
         {search_text}
 
         For each of these 10 trending concepts, your goal is a LITERAL recreation, not a loosely-inspired new idea:
-        1. Keep the EXACT platform name (Reddit, YouTube, Twitter/X, LinkedIn, or Instagram), author, title, and viral metrics. NEVER replace the platform name with "public news", "news", or any generic label. Ensure the URL is kept as a valid direct HTTP/HTTPS link to the original video source (do NOT change it to keywords or text descriptions).
+        1. Keep the EXACT platform name (Reddit, YouTube, Twitter/X, LinkedIn, or Instagram), author, title, and viral metrics. NEVER replace the platform name with "public news", "news", or any generic label. Keep the URL EXACTLY as reported in the research notes — the original post's link on its source platform. If the research notes say the URL is "unknown", output "unknown" as the URL. Never invent, alter, or substitute URLs.
         2. Describe the original video's exact visual content, subject, camera movement, and editing technique (original_concept).
         3. Describe the literal recreation plan: how 6Frame Studio will recreate the SAME video shot-for-shot — same subject, scene, and motion — finished in 6Frame Studio's premium cinematic style (studio_adaptation_concept).
         4. Write a precise Image-to-Video/Text-to-Video motion prompt (recreated_video_prompt) that recreates that SAME video as closely as possible — not a new or different concept.
@@ -398,9 +430,9 @@ def run_live_trend_scanner(
             return
 
         for trend in results.trends:
-            if not check_url_valid(trend.url):
+            if not check_url_valid(trend.url, trend.platform):
                 logger.info(f"Invalid or mock URL detected: {trend.url}. Resolving dynamically for: {trend.title}")
-                trend.url = resolve_trend_mock_url(trend.title)
+                trend.url = resolve_trend_mock_url(trend.title, trend.platform)
 
         final_result = {
             "trends": [trend.model_dump() for trend in results.trends]

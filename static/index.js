@@ -1134,8 +1134,8 @@ document.addEventListener("DOMContentLoaded", () => {
         trendAuthorTag.textContent = `Creator: ${trend.author}`;
         trendMetricsTag.textContent = `Virality: ${trend.viral_metrics}`;
         let rawUrl = trend.url || "";
-        // If the model returned a broken/placeholder link, point "Verify Original" at a real
-        // YouTube search for the trend's title instead of silently substituting another video.
+        // If the model returned a broken/placeholder link, point the link at a search for the
+        // post on ITS OWN platform instead of silently substituting another video.
         const isMockPattern = (
             !rawUrl.startsWith("http") ||
             rawUrl.includes("examplecyber") ||
@@ -1146,8 +1146,15 @@ document.addEventListener("DOMContentLoaded", () => {
             rawUrl.includes("AIVoyager")
         );
         if (isMockPattern) {
-            console.log("Unverifiable trend URL — linking to a YouTube search for the trend title instead.");
-            rawUrl = "https://www.youtube.com/results?search_query=" + encodeURIComponent(trend.title || "");
+            console.log("Unverifiable trend URL — linking to a search for the post on its source platform.");
+            const platformLower = (trend.platform || "").toLowerCase();
+            const domainMap = { instagram: "instagram.com", tiktok: "tiktok.com", linkedin: "linkedin.com", twitter: "x.com", x: "x.com" };
+            const domain = Object.keys(domainMap).find(k => platformLower.includes(k));
+            if (domain) {
+                rawUrl = "https://www.google.com/search?q=" + encodeURIComponent(`site:${domainMap[domain]} ${trend.title || ""}`);
+            } else {
+                rawUrl = "https://www.youtube.com/results?search_query=" + encodeURIComponent(trend.title || "");
+            }
         }
         trendOriginalLinkAnchor.href = rawUrl;
         trendOriginalConcept.textContent = trend.original_concept;
