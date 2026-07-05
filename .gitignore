@@ -4,6 +4,7 @@ settings.json
 scheduled_posts.json
 engagement_queue.json
 engagement_state.json
+instagram_hashtag_state.json
 static/assets/generated/
 uploads/
 *.log

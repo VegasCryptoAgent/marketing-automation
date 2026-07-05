@@ -322,6 +322,109 @@ def fetch_realtime_news_context() -> str:
         logger.error(f"Error fetching Google News context: {e}")
     return ""
 
+INSTAGRAM_HASHTAG_STATE_FILE = os.path.join(BASE_DIR, "instagram_hashtag_state.json")
+DEFAULT_INSTAGRAM_SEARCH_HASHTAGS = [
+    "aivideo", "runwaygen3", "soraai", "aifilmmaking",
+    "generativevideo", "klingai", "aicinematography", "midjourneyvideo",
+]
+INSTAGRAM_HASHTAG_ROLLING_WINDOW_DAYS = 7
+INSTAGRAM_HASHTAG_ROLLING_CAP = 30  # Meta's hard limit: unique hashtags queried per IG User ID per 7 days
+
+def load_instagram_hashtag_state() -> dict:
+    if os.path.exists(INSTAGRAM_HASHTAG_STATE_FILE):
+        try:
+            with open(INSTAGRAM_HASHTAG_STATE_FILE, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error reading Instagram hashtag state file: {e}")
+    return {"hashtag_ids": {}, "usage": {}}
+
+def save_instagram_hashtag_state(state: dict):
+    try:
+        with open(INSTAGRAM_HASHTAG_STATE_FILE, "w") as f:
+            json.dump(state, f, indent=4)
+    except Exception as e:
+        logger.error(f"Error saving Instagram hashtag state file: {e}")
+
+def fetch_instagram_hashtag_context(settings: Dict[str, Any]) -> str:
+    """Uses the Instagram Business Graph API's Hashtag Search (the only real content-discovery
+    endpoint Meta exposes, even to authenticated business accounts) to pull real, verifiable
+    posts for a handful of niche-relevant hashtags. Meta caps queries to 30 unique hashtags per
+    rolling 7 days per IG User ID, so hashtag lookups (not media fetches) are tracked and capped
+    here; already-queried hashtags within the window are reused from cache at no cost."""
+    import requests
+    from datetime import datetime, timedelta
+
+    access_token = settings.get("instagram_access_token")
+    ig_user_id = settings.get("instagram_business_account_id")
+    if not access_token or not ig_user_id:
+        return ""
+
+    hashtags = settings.get("instagram_search_hashtags") or DEFAULT_INSTAGRAM_SEARCH_HASHTAGS
+    if isinstance(hashtags, str):
+        hashtags = [h.strip().lstrip("#") for h in hashtags.split(",") if h.strip()]
+
+    state = load_instagram_hashtag_state()
+    hashtag_ids = state.get("hashtag_ids", {})
+    usage = state.get("usage", {})
+
+    # Prune usage entries older than the rolling window
+    cutoff = datetime.now() - timedelta(days=INSTAGRAM_HASHTAG_ROLLING_WINDOW_DAYS)
+    usage = {h: ts for h, ts in usage.items() if datetime.fromisoformat(ts) > cutoff}
+
+    lines = []
+    for hashtag in hashtags:
+        hashtag = hashtag.lower()
+        try:
+            hashtag_id = hashtag_ids.get(hashtag)
+            if not hashtag_id:
+                if hashtag not in usage and len(usage) >= INSTAGRAM_HASHTAG_ROLLING_CAP:
+                    logger.warning(
+                        f"Instagram hashtag search cap ({INSTAGRAM_HASHTAG_ROLLING_CAP}/7 days) reached — "
+                        f"skipping new hashtag '#{hashtag}' this round."
+                    )
+                    continue
+                search_res = requests.get(
+                    "https://graph.facebook.com/v21.0/ig_hashtag_search",
+                    params={"user_id": ig_user_id, "q": hashtag, "access_token": access_token},
+                    timeout=15,
+                )
+                if search_res.status_code != 200:
+                    logger.warning(f"Instagram hashtag search failed for '#{hashtag}': {search_res.text[:200]}")
+                    continue
+                data = search_res.json().get("data", [])
+                if not data:
+                    continue
+                hashtag_id = data[0]["id"]
+                hashtag_ids[hashtag] = hashtag_id
+                usage[hashtag] = datetime.now().isoformat()
+
+            media_res = requests.get(
+                f"https://graph.facebook.com/v21.0/{hashtag_id}/top_media",
+                params={
+                    "user_id": ig_user_id,
+                    "fields": "id,caption,permalink,like_count,comments_count,media_type,timestamp",
+                    "access_token": access_token,
+                },
+                timeout=15,
+            )
+            if media_res.status_code != 200:
+                logger.warning(f"Instagram top_media fetch failed for '#{hashtag}': {media_res.text[:200]}")
+                continue
+            for post in media_res.json().get("data", [])[:8]:
+                caption = (post.get("caption") or "").replace("\n", " ")[:200]
+                lines.append(
+                    f"- Platform: Instagram | URL: {post.get('permalink')} | "
+                    f"Likes: {post.get('like_count', 0)} | Comments: {post.get('comments_count', 0)} | "
+                    f"Posted: {post.get('timestamp', '')} | Caption: {caption}"
+                )
+        except Exception as e:
+            logger.warning(f"Error fetching Instagram hashtag data for '#{hashtag}': {e}")
+            continue
+
+    save_instagram_hashtag_state({"hashtag_ids": hashtag_ids, "usage": usage})
+    return "\n".join(lines)
+
 def run_live_trend_scanner(
     job_id: str,
     settings: Dict[str, Any]
@@ -335,7 +438,20 @@ def run_live_trend_scanner(
         update_job_status(job_id, "PROCESSING", 10, "Fetching supplementary real-time AI news context...")
         news_context = fetch_realtime_news_context()
 
+        update_job_status(job_id, "PROCESSING", 15, "Querying Instagram Hashtag Search for verified real posts...")
+        instagram_context = fetch_instagram_hashtag_context(settings)
+
         update_job_status(job_id, "PROCESSING", 20, "Searching Reddit, YouTube, Twitter/X, LinkedIn, and Instagram via Google Search grounding (last 24 hours)...")
+
+        instagram_context_block = ""
+        if instagram_context:
+            instagram_context_block = (
+                "Here are REAL, verified Instagram posts pulled directly via the Instagram Hashtag "
+                "Search API — each URL below is a confirmed, real permalink to the actual post (not a "
+                "search result to interpret). When one of these aligns with 6Frame Studio's niche, prefer "
+                "citing it AS THE INSTAGRAM TREND using its exact URL, caption, and engagement numbers as given:\n"
+                + instagram_context
+            )
 
         search_prompt = f"""
         Search across Reddit (specifically r/aivideo, r/midjourney, r/StableDiffusion, r/ChatGPT), YouTube, Twitter/X, LinkedIn, and Instagram for the top 10 most viral or trending AI video posts from the last 24 hours.
@@ -347,7 +463,9 @@ def run_live_trend_scanner(
         Here is supplementary real-time AI news context you may use as additional seed material — but you must still actively search the social platforms above directly rather than relying on this alone:
         {news_context}
 
-        URL RULES (CRITICAL): The URL you report for each trend MUST be the REAL, direct link to the original viral post on its source platform, exactly as it appears in your search results — an instagram.com/reel/... link for an Instagram trend, an x.com/.../status/... link for a Twitter/X trend, a youtube.com/watch?v=... link for a YouTube trend, and so on. NEVER substitute a video from a different platform, and NEVER fabricate, guess, or reconstruct a URL (no placeholder IDs like 'examplecyber', 'abcdef', 'status/12345', 'your_post_id'). If you cannot find the exact post URL in your search results, write "unknown" as the URL and still report the trend.
+        {instagram_context_block}
+
+        URL RULES (CRITICAL): The URL you report for each trend MUST be the REAL, direct link to the original viral post on its source platform, exactly as it appears in your search results (or in the verified Instagram post list above) — an instagram.com/reel/... link for an Instagram trend, an x.com/.../status/... link for a Twitter/X trend, a youtube.com/watch?v=... link for a YouTube trend, and so on. NEVER substitute a video from a different platform, and NEVER fabricate, guess, or reconstruct a URL (no placeholder IDs like 'examplecyber', 'abcdef', 'status/12345', 'your_post_id'). If you cannot find the exact post URL in your search results, write "unknown" as the URL and still report the trend.
 
         For each of the 10 trends identified, describe:
         1. The EXACT source platform where it was found (Reddit, YouTube, Twitter/X, LinkedIn, or Instagram). DO NOT use generic labels like "public news" or "news".

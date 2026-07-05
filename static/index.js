@@ -154,6 +154,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.getElementById("meta-app-secret").value = data.meta_app_secret || "";
                 document.getElementById("instagram-access-token").value = data.instagram_access_token || "";
                 document.getElementById("instagram-business-account-id").value = data.instagram_business_account_id || "";
+                document.getElementById("instagram-search-hashtags").value = (data.instagram_search_hashtags || []).join(", ");
                 document.getElementById("facebook-page-access-token").value = data.facebook_page_access_token || "";
                 document.getElementById("facebook-page-id").value = data.facebook_page_id || "";
                 document.getElementById("tiktok-client-key").value = data.tiktok_client_key || "";
@@ -213,6 +214,8 @@ document.addEventListener("DOMContentLoaded", () => {
             meta_app_secret: document.getElementById("meta-app-secret").value,
             instagram_access_token: document.getElementById("instagram-access-token").value,
             instagram_business_account_id: document.getElementById("instagram-business-account-id").value,
+            instagram_search_hashtags: document.getElementById("instagram-search-hashtags").value
+                .split(",").map(h => h.trim().replace(/^#/, "")).filter(h => h),
             facebook_page_access_token: document.getElementById("facebook-page-access-token").value,
             facebook_page_id: document.getElementById("facebook-page-id").value,
             tiktok_client_key: document.getElementById("tiktok-client-key").value,

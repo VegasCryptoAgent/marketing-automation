@@ -91,7 +91,11 @@ DEFAULT_SETTINGS = {
     "youtube_refresh_token": "",
     "threads_access_token": "",
     "threads_user_id": "",
-    "public_base_url": ""
+    "public_base_url": "",
+    "instagram_search_hashtags": [
+        "aivideo", "runwaygen3", "soraai", "aifilmmaking",
+        "generativevideo", "klingai", "aicinematography", "midjourneyvideo",
+    ]
 }
 
 def load_settings():
@@ -121,7 +125,7 @@ def load_settings():
                     settings[k] = int(env_val)
                 except:
                     pass
-            elif k == "autonomous_platforms":
+            elif k in ("autonomous_platforms", "instagram_search_hashtags"):
                 try:
                     settings[k] = json.loads(env_val)
                 except:
@@ -171,6 +175,7 @@ class SettingsSchema(BaseModel):
     threads_access_token: str
     threads_user_id: str
     public_base_url: str
+    instagram_search_hashtags: List[str]
 
 class AnalyzeRequest(BaseModel):
     video_path: str
