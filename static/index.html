@@ -1139,6 +1139,19 @@
                         <span class="toggle-help">Instagram/TikTok/Facebook/Threads fetch the video from this URL — required before publishing to those platforms.</span>
                     </div>
 
+                    <h4 class="credentials-sub">Meta App (shared by Instagram + Facebook)</h4>
+                    <p style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                        Run <code>python3 meta_auth.py</code> in the project folder to fill in everything below automatically via a one-time browser login.
+                    </p>
+                    <div class="input-group">
+                        <label for="meta-app-id">App ID</label>
+                        <input type="text" id="meta-app-id">
+                    </div>
+                    <div class="input-group">
+                        <label for="meta-app-secret">App Secret</label>
+                        <input type="password" id="meta-app-secret">
+                    </div>
+
                     <h4 class="credentials-sub">Instagram (Meta Graph API — Business/Creator account)</h4>
                     <div class="input-group">
                         <label for="instagram-access-token">Access Token</label>
@@ -1160,16 +1173,30 @@
                     </div>
 
                     <h4 class="credentials-sub" style="margin-top: 1.5rem;">TikTok (Content Posting API)</h4>
+                    <p style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                        Run <code>python3 tiktok_auth.py</code> in the project folder to fill in everything below automatically via a one-time browser login.
+                    </p>
                     <div class="input-group">
                         <label for="tiktok-client-key">Client Key</label>
                         <input type="text" id="tiktok-client-key">
                     </div>
                     <div class="input-group">
+                        <label for="tiktok-client-secret">Client Secret</label>
+                        <input type="password" id="tiktok-client-secret">
+                    </div>
+                    <div class="input-group">
                         <label for="tiktok-access-token">Access Token</label>
                         <input type="password" id="tiktok-access-token">
                     </div>
+                    <div class="input-group">
+                        <label for="tiktok-refresh-token">Refresh Token</label>
+                        <input type="password" id="tiktok-refresh-token">
+                    </div>
 
                     <h4 class="credentials-sub" style="margin-top: 1.5rem;">YouTube (Data API v3)</h4>
+                    <p style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                        Run <code>python3 youtube_auth.py</code> in the project folder to fill in the refresh token below automatically via a one-time browser login (enter Client ID/Secret first).
+                    </p>
                     <div class="input-group">
                         <label for="youtube-client-id">OAuth Client ID</label>
                         <input type="text" id="youtube-client-id">

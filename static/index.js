@@ -150,12 +150,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 // Additional platform credentials (modal)
                 document.getElementById("public-base-url").value = data.public_base_url || "";
+                document.getElementById("meta-app-id").value = data.meta_app_id || "";
+                document.getElementById("meta-app-secret").value = data.meta_app_secret || "";
                 document.getElementById("instagram-access-token").value = data.instagram_access_token || "";
                 document.getElementById("instagram-business-account-id").value = data.instagram_business_account_id || "";
                 document.getElementById("facebook-page-access-token").value = data.facebook_page_access_token || "";
                 document.getElementById("facebook-page-id").value = data.facebook_page_id || "";
                 document.getElementById("tiktok-client-key").value = data.tiktok_client_key || "";
+                document.getElementById("tiktok-client-secret").value = data.tiktok_client_secret || "";
                 document.getElementById("tiktok-access-token").value = data.tiktok_access_token || "";
+                document.getElementById("tiktok-refresh-token").value = data.tiktok_refresh_token || "";
                 document.getElementById("youtube-client-id").value = data.youtube_client_id || "";
                 document.getElementById("youtube-client-secret").value = data.youtube_client_secret || "";
                 document.getElementById("youtube-refresh-token").value = data.youtube_refresh_token || "";
@@ -205,12 +209,16 @@ document.addEventListener("DOMContentLoaded", () => {
     function collectAdditionalPlatformCreds() {
         return {
             public_base_url: document.getElementById("public-base-url").value,
+            meta_app_id: document.getElementById("meta-app-id").value,
+            meta_app_secret: document.getElementById("meta-app-secret").value,
             instagram_access_token: document.getElementById("instagram-access-token").value,
             instagram_business_account_id: document.getElementById("instagram-business-account-id").value,
             facebook_page_access_token: document.getElementById("facebook-page-access-token").value,
             facebook_page_id: document.getElementById("facebook-page-id").value,
             tiktok_client_key: document.getElementById("tiktok-client-key").value,
+            tiktok_client_secret: document.getElementById("tiktok-client-secret").value,
             tiktok_access_token: document.getElementById("tiktok-access-token").value,
+            tiktok_refresh_token: document.getElementById("tiktok-refresh-token").value,
             youtube_client_id: document.getElementById("youtube-client-id").value,
             youtube_client_secret: document.getElementById("youtube-client-secret").value,
             youtube_refresh_token: document.getElementById("youtube-refresh-token").value,

@@ -76,12 +76,16 @@ DEFAULT_SETTINGS = {
     "autonomous_video_engine": "runway_gen3",
     "autonomous_video_duration": 10,
     "require_autopilot_approval": True,
+    "meta_app_id": "",
+    "meta_app_secret": "",
     "instagram_access_token": "",
     "instagram_business_account_id": "",
     "facebook_page_access_token": "",
     "facebook_page_id": "",
-    "tiktok_access_token": "",
     "tiktok_client_key": "",
+    "tiktok_client_secret": "",
+    "tiktok_access_token": "",
+    "tiktok_refresh_token": "",
     "youtube_client_id": "",
     "youtube_client_secret": "",
     "youtube_refresh_token": "",
@@ -151,12 +155,16 @@ class SettingsSchema(BaseModel):
     autonomous_video_engine: str
     autonomous_video_duration: int
     require_autopilot_approval: bool
+    meta_app_id: str
+    meta_app_secret: str
     instagram_access_token: str
     instagram_business_account_id: str
     facebook_page_access_token: str
     facebook_page_id: str
-    tiktok_access_token: str
     tiktok_client_key: str
+    tiktok_client_secret: str
+    tiktok_access_token: str
+    tiktok_refresh_token: str
     youtube_client_id: str
     youtube_client_secret: str
     youtube_refresh_token: str
@@ -459,7 +467,8 @@ class GenerateVideoRequest(BaseModel):
 SECRET_SETTING_KEYS = [
     "gemini_api_key", "twitter_consumer_key", "twitter_consumer_secret",
     "twitter_access_token", "twitter_access_token_secret", "linkedin_access_token", "runway_api_key",
-    "instagram_access_token", "facebook_page_access_token", "tiktok_access_token",
+    "meta_app_secret", "instagram_access_token", "facebook_page_access_token",
+    "tiktok_client_secret", "tiktok_access_token", "tiktok_refresh_token",
     "youtube_client_secret", "youtube_refresh_token", "threads_access_token"
 ]
 
