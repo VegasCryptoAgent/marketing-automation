@@ -7,7 +7,7 @@ import asyncio
 from datetime import datetime
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import tweepy
@@ -1735,6 +1735,11 @@ def refresh_engagement_queue(background_tasks: BackgroundTasks):
     settings = load_settings()
     background_tasks.add_task(fetch_and_draft_mention_replies, settings)
     return {"status": "SUCCESS", "message": "Checking for new mentions in the background."}
+
+# TikTok domain (URL prefix) verification file
+@app.get("/tiktokfa6qOoVQvk1SxaIGW7xhpCLHQf0Ek3JZ.txt", response_class=PlainTextResponse)
+def tiktok_domain_verification():
+    return "tiktok-developers-site-verification=fa6qOoVQvk1SxaIGW7xhpCLHQf0Ek3JZ"
 
 # Mount static files folder
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
