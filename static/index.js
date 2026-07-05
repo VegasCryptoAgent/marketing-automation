@@ -1134,19 +1134,20 @@ document.addEventListener("DOMContentLoaded", () => {
         trendAuthorTag.textContent = `Creator: ${trend.author}`;
         trendMetricsTag.textContent = `Virality: ${trend.viral_metrics}`;
         let rawUrl = trend.url || "";
-        // Frontend Fallback: Intercept mock, placeholder, or broken links and replace with a working cinematic AI trailer
+        // If the model returned a broken/placeholder link, point "Verify Original" at a real
+        // YouTube search for the trend's title instead of silently substituting another video.
         const isMockPattern = (
-            !rawUrl.startsWith("http") || 
-            rawUrl.includes("examplecyber") || 
-            rawUrl.includes("12345") || 
-            rawUrl.includes("abcdef") || 
+            !rawUrl.startsWith("http") ||
+            rawUrl.includes("examplecyber") ||
+            rawUrl.includes("12345") ||
+            rawUrl.includes("abcdef") ||
             rawUrl.includes("status/example") ||
             rawUrl.includes("DigitalDreams") ||
             rawUrl.includes("AIVoyager")
         );
         if (isMockPattern) {
-            console.log("Mock URL detected on frontend, resolving to working cinematic fallback asset.");
-            rawUrl = "https://www.youtube.com/watch?v=kQD2bBnb-Yc"; // Live Sora Cinematic AI Video link
+            console.log("Unverifiable trend URL — linking to a YouTube search for the trend title instead.");
+            rawUrl = "https://www.youtube.com/results?search_query=" + encodeURIComponent(trend.title || "");
         }
         trendOriginalLinkAnchor.href = rawUrl;
         trendOriginalConcept.textContent = trend.original_concept;

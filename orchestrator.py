@@ -2,6 +2,7 @@ import os
 import time
 import json
 import logging
+import urllib.parse
 from typing import Dict, Any, List
 from pydantic import BaseModel, Field
 from google import genai
@@ -266,7 +267,8 @@ def resolve_trend_mock_url(title: str) -> str:
             return url
     except Exception as e:
         logger.error(f"Failed resolving mock URL for trend: {title}. Error: {e}")
-    return "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+    # Honest fallback: a real YouTube search for the trend title, never an unrelated video.
+    return "https://www.youtube.com/results?search_query=" + urllib.parse.quote(title)
 
 def fetch_realtime_news_context() -> str:
     import xml.etree.ElementTree as ET
