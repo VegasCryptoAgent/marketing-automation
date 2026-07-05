@@ -325,10 +325,32 @@ def publish_instagram_post(post: dict, settings: dict):
         raise ValueError(f"Instagram publish failed: {publish_res.text}")
     return publish_res.json()
 
-def publish_tiktok_post(post: dict, settings: dict):
-    access_token = settings.get("tiktok_access_token")
+def get_tiktok_access_token(settings: dict) -> str:
+    """TikTok access tokens expire in 24h. Rather than persist a refreshed token
+    (which wouldn't stick on Railway — env vars always override settings.json on
+    every load_settings() call), mint a fresh one from the long-lived refresh_token
+    on every publish, mirroring get_youtube_access_token()'s approach."""
+    if not all(settings.get(k) for k in ["tiktok_client_key", "tiktok_client_secret", "tiktok_refresh_token"]):
+        raise ValueError("Missing TikTok credentials (client key / secret / refresh token).")
+    res = requests.post(
+        "https://open.tiktokapis.com/v2/oauth/token/",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data={
+            "client_key": settings["tiktok_client_key"],
+            "client_secret": settings["tiktok_client_secret"],
+            "grant_type": "refresh_token",
+            "refresh_token": settings["tiktok_refresh_token"],
+        }
+    )
+    if res.status_code != 200:
+        raise ValueError(f"Failed to refresh TikTok access token: {res.text}")
+    access_token = res.json().get("access_token")
     if not access_token:
-        raise ValueError("Missing TikTok access token.")
+        raise ValueError(f"TikTok refresh response had no access_token: {res.text}")
+    return access_token
+
+def publish_tiktok_post(post: dict, settings: dict):
+    access_token = get_tiktok_access_token(settings)
 
     video_url = get_public_video_url(post, settings)
     url = "https://open.tiktokapis.com/v2/post/publish/video/init/"
