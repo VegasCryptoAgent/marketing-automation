@@ -807,6 +807,10 @@ def virality_score_endpoint(req: ViralityScoreRequest):
 class LoadOriginalVideoRequest(BaseModel):
     url: str
     title: Optional[str] = None
+    # When False, refuses to silently substitute a different video (YouTube search
+    # match or the safety-fallback clip) if the exact URL can't be downloaded —
+    # used by the Repurposer Workshop, where the point is repurposing THIS video.
+    allow_fallback: bool = True
 
 @app.post("/api/load-original-video")
 def load_original_video(req: LoadOriginalVideoRequest, background_tasks: BackgroundTasks):
@@ -866,7 +870,16 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
                     target_url
                 ]
                 result = await asyncio.to_thread(subprocess.run, cmd_fallback, capture_output=True, text=True, timeout=90)
-                
+
+                if result.returncode != 0 and not req.allow_fallback:
+                    update_job_status(
+                        job_id, "FAILED", 0,
+                        "Could not download this specific video. The source platform may block automated "
+                        "downloads (common for Instagram/TikTok/X without login) or the link may be private "
+                        "or invalid. The generated commentary text is still usable without the video."
+                    )
+                    return
+
                 # If target_url still fails, try search as a final resort
                 if result.returncode != 0 and req.title and not target_url.startswith("ytsearch1:"):
                     logger.info(f"Direct download failed. Swapping to final YouTube search fallback for: {req.title}")
@@ -878,7 +891,7 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
                         f"ytsearch1:{req.title}"
                     ]
                     result = await asyncio.to_thread(subprocess.run, cmd_search, capture_output=True, text=True, timeout=90)
-                
+
                 if result.returncode != 0:
                     logger.info("Search fallback failed. Using verified cinematic trailer fallback...")
                     cmd_final_safety = [

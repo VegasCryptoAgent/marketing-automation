@@ -2437,6 +2437,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let repurposerActiveVideoPath = null;
     let repurposerScrapedData = null;
+    let repurposerVideoFailureMessage = null;
 
     if (repurposeRunBtn) {
         repurposeRunBtn.addEventListener("click", () => {
@@ -2455,6 +2456,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             repurposerActiveVideoPath = null;
             repurposerScrapedData = null;
+            repurposerVideoFailureMessage = null;
 
             // Step 1: Repurpose copywriting
             fetch("/api/repurpose-video-link", {
@@ -2479,7 +2481,7 @@ document.addEventListener("DOMContentLoaded", () => {
             fetch("/api/load-original-video", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url: url, title: "Pasted Viral Video" })
+                body: JSON.stringify({ url: url, allow_fallback: false })
             })
             .then(res => {
                 if (!res.ok) throw new Error("Video download registration failed");
@@ -2508,6 +2510,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     } else if (data.status === "FAILED") {
                         clearInterval(interval);
                         repurposerActiveVideoPath = "FAILED";
+                        repurposerVideoFailureMessage = data.message || null;
                         checkRepurposeWorkshopReady(url);
                     }
                 })
@@ -2588,7 +2591,12 @@ document.addEventListener("DOMContentLoaded", () => {
             player.src = repurposerActiveVideoPath;
         } else {
             placeholder.classList.remove("hidden");
-            placeholder.innerHTML = `<p style="font-size:0.75rem; color:var(--text-secondary); padding: 2rem 0;">Video binary could not be parsed automatically. Attributed copy is ready below.</p>`;
+            placeholder.innerHTML = "";
+            const p = document.createElement("p");
+            p.style.cssText = "font-size:0.75rem; color:var(--text-secondary); padding: 2rem 0;";
+            const failureText = repurposerVideoFailureMessage || "Video binary could not be parsed automatically.";
+            p.textContent = `${failureText} Attributed copy is ready below.`;
+            placeholder.appendChild(p);
             playerCont.classList.add("hidden");
             player.src = "";
         }
