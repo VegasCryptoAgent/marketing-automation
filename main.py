@@ -7,7 +7,7 @@ import asyncio
 from datetime import datetime
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException
-from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import tweepy
@@ -1740,6 +1740,30 @@ def refresh_engagement_queue(background_tasks: BackgroundTasks):
 @app.get("/tiktokfa6qOoVQvk1SxaIGW7xhpCLHQf0Ek3JZ.txt", response_class=PlainTextResponse)
 def tiktok_domain_verification():
     return "tiktok-developers-site-verification=fa6qOoVQvk1SxaIGW7xhpCLHQf0Ek3JZ"
+
+# TikTok OAuth callback — TikTok's sandbox rejects localhost redirect URIs, so this
+# public endpoint receives the code instead and displays it for manual copy-paste
+# into tiktok_auth.py running locally.
+@app.get("/tiktok-callback", response_class=HTMLResponse)
+def tiktok_oauth_callback(code: str = None, error: str = None, error_description: str = None):
+    if code:
+        body = f"""
+        <div style="font-family:-apple-system,sans-serif;background:#0f172a;color:#f8fafc;text-align:center;padding:50px;">
+            <div style="background:#1e293b;padding:30px;border-radius:8px;display:inline-block;max-width:600px;">
+                <h1 style="color:#10b981;">Authorization Successful!</h1>
+                <p>Copy this code and paste it back into your terminal:</p>
+                <textarea readonly style="width:100%;height:60px;font-family:monospace;font-size:14px;padding:10px;">{code}</textarea>
+            </div>
+        </div>
+        """
+    else:
+        body = f"""
+        <div style="font-family:-apple-system,sans-serif;background:#0f172a;color:#f8fafc;text-align:center;padding:50px;">
+            <h1 style="color:#ef4444;">Authorization Failed</h1>
+            <p>Error: {error_description or error or 'Unknown error'}</p>
+        </div>
+        """
+    return f"<html><head></head><body>{body}</body></html>"
 
 # Mount static files folder
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")

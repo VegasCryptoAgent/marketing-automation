@@ -3,65 +3,17 @@ import sys
 import json
 import webbrowser
 import urllib.parse
-from http.server import BaseHTTPRequestHandler, HTTPServer
 import requests
 
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
-REDIRECT_URI = "http://localhost:8080/callback"
+# TikTok's sandbox/production OAuth rejects localhost redirect URIs entirely, unlike
+# Meta/Google — so this points at a public endpoint on the deployed app instead, which
+# displays the code on screen for you to paste back here.
+REDIRECT_URI = os.environ.get(
+    "TIKTOK_REDIRECT_URI",
+    "https://marketing-automation-production-dbd5.up.railway.app/tiktok-callback"
+)
 SCOPES = "user.info.basic,video.publish,video.upload"
-
-captured_code = None
-
-class CallbackHandler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        return
-
-    def do_GET(self):
-        global captured_code
-        parsed_url = urllib.parse.urlparse(self.path)
-        query_params = urllib.parse.parse_qs(parsed_url.query)
-
-        if parsed_url.path == "/callback":
-            if "code" in query_params:
-                captured_code = query_params["code"][0]
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html")
-                self.end_headers()
-                self.wfile.write(b"""
-                <html>
-                <head><style>
-                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 50px; }
-                    h1 { color: #10b981; }
-                    .card { background: #1e293b; padding: 30px; border-radius: 8px; display: inline-block; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-top: 20px; }
-                </style></head>
-                <body>
-                    <div class="card">
-                        <h1>Authorization Successful!</h1>
-                        <p>You can close this browser tab and return to the terminal to finish setup.</p>
-                    </div>
-                </body>
-                </html>
-                """)
-            else:
-                error_msg = query_params.get("error_description", ["Unknown error"])[0]
-                self.send_response(400)
-                self.send_header("Content-Type", "text/html")
-                self.end_headers()
-                self.wfile.write(f"""
-                <html>
-                <head><style>
-                    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 50px; }}
-                    h1 {{ color: #ef4444; }}
-                </style></head>
-                <body>
-                    <h1>Authorization Failed!</h1>
-                    <p>Error: {error_msg}</p>
-                </body>
-                </html>
-                """.encode("utf-8"))
-        else:
-            self.send_response(404)
-            self.end_headers()
 
 def main():
     print("=" * 60)
@@ -110,22 +62,19 @@ def main():
     }
     auth_url = "https://www.tiktok.com/v2/auth/authorize/?" + urllib.parse.urlencode(params)
 
-    server = HTTPServer(("localhost", 8080), CallbackHandler)
-
     print("=" * 60)
     print("Opening your browser to log in with your TikTok account...")
     print(f"If it doesn't open automatically, visit:\n{auth_url}")
+    print("After you log in and approve, the page will show an authorization code.")
     print("=" * 60)
     webbrowser.open(auth_url)
 
-    try:
-        while captured_code is None:
-            server.handle_request()
-    except KeyboardInterrupt:
-        print("\nAborted by user.")
+    captured_code = input("\nPaste the authorization code shown on that page here: ").strip()
+    if not captured_code:
+        print("Error: No code entered.")
         sys.exit(1)
 
-    print(f"Captured Auth Code: {captured_code[:10]}...")
+    print(f"Using Auth Code: {captured_code[:10]}...")
 
     print("Exchanging authorization code for an access token...")
     token_res = requests.post(
