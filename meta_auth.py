@@ -9,7 +9,12 @@ import requests
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 REDIRECT_URI = "http://localhost:8080/callback"
 GRAPH_VERSION = "v21.0"
-SCOPES = "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management"
+# Override with e.g. META_SCOPES="pages_show_list,pages_manage_posts" when the app
+# doesn't have every permission enabled yet.
+SCOPES = os.environ.get(
+    "META_SCOPES",
+    "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management"
+)
 
 captured_code = None
 
