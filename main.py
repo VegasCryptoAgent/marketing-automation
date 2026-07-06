@@ -372,7 +372,8 @@ def publish_tiktok_post(post: dict, settings: dict):
             "privacy_level": "SELF_ONLY",
             "disable_duet": False,
             "disable_comment": False,
-            "disable_stitch": False
+            "disable_stitch": False,
+            "is_aigc": True  # discloses AI-generated content per TikTok's content policy
         },
         "source_info": {
             "source": "PULL_FROM_URL",
@@ -1828,6 +1829,98 @@ def tiktok_oauth_callback(code: str = None, error: str = None, error_description
         </div>
         """
     return f"<html><head></head><body>{body}</body></html>"
+
+LEGAL_PAGE_STYLE = """
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0a0a0c;
+         color: #e5e5ea; max-width: 780px; margin: 0 auto; padding: 48px 24px 96px; line-height: 1.6; }
+  h1 { color: #fff; font-size: 1.75rem; margin-bottom: 0.25rem; }
+  h2 { color: #fff; font-size: 1.15rem; margin-top: 2rem; }
+  p, li { color: #c7c7cf; font-size: 0.95rem; }
+  .updated { color: #8b8b96; font-size: 0.85rem; margin-bottom: 2rem; }
+  a { color: #a855f7; }
+</style>
+"""
+
+@app.get("/privacy-policy", response_class=HTMLResponse)
+def privacy_policy():
+    return f"""<html><head><title>Privacy Policy — 6Frame Studio</title>{LEGAL_PAGE_STYLE}</head><body>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: 2026</p>
+    <p>6Frame Studio ("we", "us", "our") operates this marketing automation application, which uses
+    generative AI to create and publish video and text content to connected social media accounts
+    (Twitter/X, LinkedIn, Instagram, TikTok, YouTube, Facebook) on behalf of the account owner.</p>
+
+    <h2>Information We Collect</h2>
+    <ul>
+      <li>OAuth access and refresh tokens for the social media accounts you explicitly connect,
+      used solely to publish content to those accounts on your behalf.</li>
+      <li>Publicly available social media content (post text, video links, engagement metrics)
+      retrieved via each platform's official API for the purpose of trend research and analytics.</li>
+      <li>Content you upload or generate within the application (videos, captions, prompts).</li>
+    </ul>
+
+    <h2>How We Use Information</h2>
+    <ul>
+      <li>To publish content to the social media accounts you have connected and authorized.</li>
+      <li>To analyze engagement metrics on published content and refine future content strategy.</li>
+      <li>To identify publicly trending content relevant to the account owner's niche for the
+      purpose of creating original, credited, brand-voice adaptations.</li>
+    </ul>
+
+    <h2>Data Sharing</h2>
+    <p>We do not sell or share your data with third parties, except as required to operate the
+    connected platform integrations themselves (e.g. sending a video to TikTok's API to publish it)
+    or as required by law.</p>
+
+    <h2>Data Retention &amp; Security</h2>
+    <p>Access tokens are stored securely on our hosting infrastructure and are only used to
+    perform actions you have explicitly configured (e.g. autonomous posting). You may revoke
+    access at any time from the connected platform's own account settings, which immediately
+    invalidates our stored token.</p>
+
+    <h2>AI-Generated Content</h2>
+    <p>This application uses generative AI (including Google's Gemini and Veo models) to create
+    video and text content. Where a platform requires disclosure of AI-generated content, we label
+    published content accordingly.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about this policy can be directed to {os.environ.get("CONTACT_EMAIL", "the account owner")}.</p>
+    </body></html>"""
+
+@app.get("/terms-of-service", response_class=HTMLResponse)
+def terms_of_service():
+    return f"""<html><head><title>Terms of Service — 6Frame Studio</title>{LEGAL_PAGE_STYLE}</head><body>
+    <h1>Terms of Service</h1>
+    <p class="updated">Last updated: 2026</p>
+    <p>By using 6Frame Studio's marketing automation application, you agree to the following terms.</p>
+
+    <h2>Purpose</h2>
+    <p>This application is an internal marketing automation tool that generates AI-driven video
+    and text content and publishes it to social media accounts explicitly connected and authorized
+    by the account owner. It is operated for 6Frame Studio's own marketing use.</p>
+
+    <h2>Acceptable Use</h2>
+    <p>Connected platform integrations (Twitter/X, LinkedIn, Instagram, TikTok, YouTube, Facebook)
+    are used strictly in accordance with each platform's own developer terms, API terms of service,
+    and content policies, including any required disclosure of AI-generated or synthetic content.</p>
+
+    <h2>Content Ownership</h2>
+    <p>All content generated and published through this application is owned by 6Frame Studio.
+    Where content is inspired by or recreates a publicly trending post, the original creator is
+    credited within the published caption.</p>
+
+    <h2>No Warranty</h2>
+    <p>This application is provided as-is, without warranty of any kind, for the purpose of
+    automating 6Frame Studio's own marketing content pipeline.</p>
+
+    <h2>Changes</h2>
+    <p>These terms may be updated from time to time to reflect changes in how the application
+    operates or in connected platforms' own requirements.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about these terms can be directed to {os.environ.get("CONTACT_EMAIL", "the account owner")}.</p>
+    </body></html>"""
 
 # Mount static files folder
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
