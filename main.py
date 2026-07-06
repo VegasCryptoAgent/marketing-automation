@@ -1801,10 +1801,18 @@ def refresh_engagement_queue(background_tasks: BackgroundTasks):
     background_tasks.add_task(fetch_and_draft_mention_replies, settings)
     return {"status": "SUCCESS", "message": "Checking for new mentions in the background."}
 
-# TikTok domain (URL prefix) verification file
+# TikTok domain (URL prefix) verification file — for the Content Posting API's
+# pull_by_url requirement
 @app.get("/tiktokfa6qOoVQvk1SxaIGW7xhpCLHQf0Ek3JZ.txt", response_class=PlainTextResponse)
 def tiktok_domain_verification():
     return "tiktok-developers-site-verification=fa6qOoVQvk1SxaIGW7xhpCLHQf0Ek3JZ"
+
+# TikTok URL-prefix verification file — for the app's URL properties (Terms of
+# Service / Privacy Policy / Web-Desktop URL), required for the Content Posting
+# API production audit submission
+@app.get("/tiktok9QQRKWG0STxFZwZJveeoFpXDjPZV5rLy.txt", response_class=PlainTextResponse)
+def tiktok_url_properties_verification():
+    return "tiktok-developers-site-verification=9QQRKWG0STxFZwZJveeoFpXDjPZV5rLy"
 
 # TikTok OAuth callback — TikTok's sandbox rejects localhost redirect URIs, so this
 # public endpoint receives the code instead and displays it for manual copy-paste
