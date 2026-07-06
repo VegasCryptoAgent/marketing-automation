@@ -16,7 +16,8 @@ import requests
 from orchestrator import (
     run_multi_agent_pipeline, get_job_status, update_job_status, run_live_trend_scanner,
     run_video_generation, jobs_status, repurpose_video_link_copy,
-    generate_video_variants, generate_virality_score, draft_engagement_reply
+    generate_video_variants, generate_virality_score, draft_engagement_reply,
+    render_variant_with_fallback, get_font_path
 )
 
 # Setup logger
@@ -277,10 +278,13 @@ def upload_video_to_linkedin(video_path: str, author_urn: str, settings: dict) -
         logger.error(f"LinkedIn video upload failed: {e}")
         return None
 
-def get_public_video_url(post: dict, settings: dict) -> str:
+def get_public_video_url(post: dict, settings: dict, platform_key: str = "") -> str:
     """Instagram/TikTok/Facebook/Threads require a publicly reachable HTTPS URL for the video,
     not a raw file upload. Requires PUBLIC_BASE_URL to be set to this app's own public domain
-    (e.g. the Railway production URL) since these platforms fetch the file themselves."""
+    (e.g. the Railway production URL) since these platforms fetch the file themselves.
+    Instagram Reels and TikTok require vertical (9:16) video — if the post carries a
+    vertical_video_path (rendered as a variant of the main video), prefer it for those two
+    platforms; other platforms use the original video_path as-is."""
     base_url = settings.get("public_base_url", "").rstrip("/")
     if not base_url:
         raise ValueError(
@@ -289,6 +293,8 @@ def get_public_video_url(post: dict, settings: dict) -> str:
             "(e.g. your Railway production URL) before publishing to these platforms."
         )
     video_path = post.get("video_path")
+    if platform_key in ("instagram", "tiktok") and post.get("vertical_video_path"):
+        video_path = post["vertical_video_path"]
     if not video_path:
         raise ValueError("This post has no video attached — Instagram/TikTok/Facebook/Threads require a video.")
     return f"{base_url}{video_path}"
@@ -299,7 +305,7 @@ def publish_instagram_post(post: dict, settings: dict):
     if not access_token or not ig_user_id:
         raise ValueError("Missing Instagram credentials (access token / business account ID).")
 
-    video_url = get_public_video_url(post, settings)
+    video_url = get_public_video_url(post, settings, "instagram")
     create_url = f"https://graph.facebook.com/v21.0/{ig_user_id}/media"
     create_res = requests.post(create_url, data={
         "media_type": "REELS",
@@ -357,7 +363,7 @@ def get_tiktok_access_token(settings: dict) -> str:
 def publish_tiktok_post(post: dict, settings: dict):
     access_token = get_tiktok_access_token(settings)
 
-    video_url = get_public_video_url(post, settings)
+    video_url = get_public_video_url(post, settings, "tiktok")
     url = "https://open.tiktokapis.com/v2/post/publish/video/init/"
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     payload = {
@@ -1339,8 +1345,25 @@ async def execute_autonomous_autopost(settings: dict):
         logger.info(f"Autopilot: Generated {video_duration}s video successfully: {generated_video_path}")
     else:
         logger.error(f"Autopilot: Video generation failed or timed out: {video_status.get('message')}")
-    
+
     platforms = settings.get("autonomous_platforms", ["twitter", "linkedin"])
+
+    # Instagram Reels and TikTok require vertical (9:16) video — the main render above is
+    # landscape (matches Twitter/LinkedIn/YouTube/Facebook fine), so render a vertical variant
+    # specifically for those two platforms when they're selected. Failure here is non-fatal:
+    # falls back to the landscape video rather than blocking the whole autopilot run.
+    vertical_video_path = None
+    if generated_video_path and any(p in platforms for p in ("instagram", "tiktok")):
+        try:
+            abs_source = os.path.join(BASE_DIR, generated_video_path.lstrip("/"))
+            vertical_filename = f"{video_job_id}_vertical_9x16.mp4"
+            abs_vertical = os.path.join(BASE_DIR, "static", "assets", "generated", vertical_filename)
+            font_path = get_font_path()
+            render_variant_with_fallback(abs_source, abs_vertical, 1080, 1920, "", font_path, 320)
+            vertical_video_path = f"/static/assets/generated/{vertical_filename}"
+            logger.info(f"Autopilot: Rendered 9:16 vertical variant for Instagram/TikTok: {vertical_video_path}")
+        except Exception as e:
+            logger.error(f"Autopilot: Failed to render vertical variant, Instagram/TikTok will use the landscape video instead: {e}")
 
     now = datetime.now()
     log_post = {
@@ -1351,6 +1374,7 @@ async def execute_autonomous_autopost(settings: dict):
         "scheduled_time": now.isoformat(),
         "campaign_title": f"Autonomous: {top_trend['title']}",
         "video_path": generated_video_path,
+        "vertical_video_path": vertical_video_path,
         "status": "PUBLISHING",
         "error_message": None,
         "posted_at": None
