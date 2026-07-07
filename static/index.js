@@ -1,5 +1,19 @@
 // Javascript Frontend Logic for 6Frame Studio Multi-Agent Social Hub
 
+// Escapes text pulled from external APIs (platform error responses, etc.) before it's
+// interpolated into an innerHTML template — a failed publish call can return a raw HTML
+// error page (e.g. Facebook's), and an unescaped <style>/<script> tag from that response
+// would execute page-wide once inserted into the DOM.
+function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     // State variables
     let uploadedVideoPath = "";
@@ -1830,7 +1844,7 @@ document.addEventListener("DOMContentLoaded", () => {
             
             item.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
-                    <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px;" title="${post.campaign_title || 'Post'}">${post.campaign_title || 'Post'}</span>
+                    <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px;" title="${escapeHtml(post.campaign_title || 'Post')}">${escapeHtml(post.campaign_title || 'Post')}</span>
                     <span class="badge" style="font-size: 0.6rem; padding: 0.1rem 0.35rem; border-radius: 4px; font-weight: bold; background: ${statusBg}; color: ${statusColor};">${post.status}</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.65rem; color: var(--text-secondary);">
@@ -1843,7 +1857,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             Show Error Log
                         </summary>
                         <div style="color: rgba(255, 107, 107, 0.95); word-break: break-all; background: rgba(255, 107, 107, 0.07); border: 1px solid rgba(255, 107, 107, 0.12); border-radius: 4px; padding: 0.4rem; max-height: 85px; overflow-y: auto; font-family: monospace; line-height: 1.25; font-size: 0.58rem;">
-                            ${post.error_message}
+                            ${escapeHtml(post.error_message)}
                         </div>
                     </details>
                 ` : ''}
@@ -2015,9 +2029,9 @@ document.addEventListener("DOMContentLoaded", () => {
             card.style.cssText = "background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.9rem;";
             card.innerHTML = `
                 <p style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.5rem;">
-                    <strong style="color: var(--text-primary);">@${item.source_author}</strong> wrote: "${item.source_text}"
+                    <strong style="color: var(--text-primary);">@${escapeHtml(item.source_author)}</strong> wrote: "${escapeHtml(item.source_text)}"
                 </p>
-                <textarea class="engagement-reply-edit" data-id="${item.id}" rows="2" style="width:100%; background:rgba(0,0,0,0.35); border:1px solid var(--border-color); color:var(--text-primary); border-radius:6px; padding:0.5rem; font-size:0.75rem; margin-bottom:0.5rem;">${item.drafted_reply}</textarea>
+                <textarea class="engagement-reply-edit" data-id="${item.id}" rows="2" style="width:100%; background:rgba(0,0,0,0.35); border:1px solid var(--border-color); color:var(--text-primary); border-radius:6px; padding:0.5rem; font-size:0.75rem; margin-bottom:0.5rem;">${escapeHtml(item.drafted_reply)}</textarea>
                 <div style="display:flex; gap:0.5rem;">
                     <button class="secondary-btn engagement-save-btn" data-id="${item.id}" style="flex:1; font-size:0.7rem; padding:0.4rem;">Save Edit</button>
                     <button class="secondary-btn engagement-dismiss-btn" data-id="${item.id}" style="flex:1; font-size:0.7rem; padding:0.4rem; color:#ff6b6b;">Dismiss</button>
