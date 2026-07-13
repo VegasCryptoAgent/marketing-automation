@@ -4,12 +4,22 @@ import uuid
 import json
 import logging
 import asyncio
-from datetime import datetime
-from typing import List, Optional
-from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException
-from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, HTMLResponse
+import html
+import subprocess
+import hmac
+import hashlib
+import secrets
+import threading
+import base64
+import re
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException, Request, Response
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from google import genai
+from google.genai import types
 import tweepy
 import requests
 
@@ -19,12 +29,100 @@ from orchestrator import (
     generate_video_variants, generate_virality_score, draft_engagement_reply,
     render_variant_with_fallback, get_font_path
 )
+from template_renderer import list_viral_templates, render_template_video
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
 
 app = FastAPI(title="6Frame Studio Marketing Automation Hub")
+
+PUBLIC_API_PATHS = {"/api/auth/login", "/api/auth/status"}
+# These routes must remain reachable without credentials. Social networks fetch
+# generated media directly, while /r and /b are intentionally public campaign URLs.
+PUBLIC_PREFIXES = ("/static/", "/r/", "/b/")
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
+ALLOWED_UPLOAD_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
+STATE_LOCKS: Dict[str, threading.RLock] = {}
+STATE_LOCKS_GUARD = threading.RLock()
+
+def get_state_lock(path: str) -> threading.RLock:
+    with STATE_LOCKS_GUARD:
+        if path not in STATE_LOCKS:
+            STATE_LOCKS[path] = threading.RLock()
+        return STATE_LOCKS[path]
+
+def read_json_file(path: str, default: Any):
+    lock = get_state_lock(path)
+    with lock:
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"Error reading JSON file {path}: {e}")
+        return default
+
+def write_json_file(path: str, data: Any):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    lock = get_state_lock(path)
+    with lock:
+        tmp_path = f"{path}.{uuid.uuid4().hex}.tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(data, f, indent=4)
+        os.replace(tmp_path, path)
+
+def auth_enabled() -> bool:
+    return bool(os.environ.get("ADMIN_PASSWORD"))
+
+def session_signature() -> str:
+    password = os.environ.get("ADMIN_PASSWORD", "")
+    secret = os.environ.get("AUTH_SECRET") or os.environ.get("ADMIN_AUTH_SECRET") or password
+    return hmac.new(secret.encode(), password.encode(), hashlib.sha256).hexdigest()
+
+def basic_auth_is_valid(request: Request) -> bool:
+    authorization = request.headers.get("authorization", "")
+    if not authorization.startswith("Basic "):
+        return False
+    try:
+        decoded = base64.b64decode(authorization[6:], validate=True).decode("utf-8")
+        username, password = decoded.split(":", 1)
+    except (ValueError, UnicodeDecodeError):
+        return False
+    expected_username = os.environ.get("ADMIN_USERNAME", "admin")
+    expected_password = os.environ.get("ADMIN_PASSWORD", "")
+    return bool(expected_password) and hmac.compare_digest(username, expected_username) and hmac.compare_digest(
+        password, expected_password
+    )
+
+def request_is_authenticated(request: Request) -> bool:
+    if not auth_enabled():
+        return True
+    cookie_value = request.cookies.get("admin_session", "")
+    header_value = request.headers.get("x-admin-session", "")
+    expected = session_signature()
+    return (
+        hmac.compare_digest(cookie_value, expected)
+        or hmac.compare_digest(header_value, expected)
+        or basic_auth_is_valid(request)
+    )
+
+def is_public_path(path: str) -> bool:
+    return (
+        path in PUBLIC_API_PATHS
+        or path in ("/privacy-policy", "/terms-of-service")
+        or path.startswith(PUBLIC_PREFIXES)
+        or path.startswith("/tiktok")
+    )
+
+@app.middleware("http")
+async def require_admin_session(request: Request, call_next):
+    if auth_enabled() and not is_public_path(request.url.path) and not request_is_authenticated(request):
+        headers = {"WWW-Authenticate": 'Basic realm="6Frame Studio Admin", charset="UTF-8"'}
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "Authentication required."}, status_code=401, headers=headers)
+        return PlainTextResponse("Authentication required.", status_code=401, headers=headers)
+    return await call_next(request)
 
 @app.middleware("http")
 async def add_no_cache_headers(request, call_next):
@@ -35,6 +133,8 @@ async def add_no_cache_headers(request, call_next):
     return response
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATE_DIR = os.environ.get("STATE_DIR") or os.environ.get("DATA_DIR") or BASE_DIR
+os.makedirs(STATE_DIR, exist_ok=True)
 
 def get_binary_path(name: str) -> str:
     import shutil
@@ -46,12 +146,15 @@ def get_binary_path(name: str) -> str:
         return which_path
     return name
 
-# Directories for temporary uploads and configuration
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-GENERATED_DIR = os.path.join(BASE_DIR, "static", "assets", "generated")
-SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
+# Directories for durable runtime data. On Railway, STATE_DIR is mounted to
+# /app/data; generated media must live there or deploys will orphan URLs.
+UPLOAD_DIR = os.path.join(STATE_DIR, "uploads")
+GENERATED_DIR = os.path.join(STATE_DIR, "generated")
+REPORTS_DIR = os.path.join(STATE_DIR, "reports")
+SETTINGS_FILE = os.path.join(STATE_DIR, "settings.json")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
+os.makedirs(REPORTS_DIR, exist_ok=True)
 
 # Default Settings
 DEFAULT_SETTINGS = {
@@ -71,12 +174,16 @@ DEFAULT_SETTINGS = {
     "linkedin_person_urn": "",
     "mock_mode": True,
     "runway_api_key": "",
+    "fal_api_key": "",
     "autonomous_posting": False,
     "autonomous_hour": 9,
     "autonomous_platforms": ["twitter", "linkedin"],
-    "autonomous_video_engine": "runway_gen3",
+    "autonomous_video_engine": "fal_hailuo_23",
     "autonomous_video_duration": 10,
     "require_autopilot_approval": True,
+    "viral_template_enabled": False,
+    "viral_template_style": "hook_burst",
+    "viral_template_quality": "standard",
     "meta_app_id": "",
     "meta_app_secret": "",
     "instagram_access_token": "",
@@ -92,6 +199,20 @@ DEFAULT_SETTINGS = {
     "youtube_refresh_token": "",
     "threads_access_token": "",
     "threads_user_id": "",
+    "report_email_to": "",
+    "report_email_provider": "smtp",
+    "resend_api_key": "",
+    "resend_from": "",
+    "postproxy_enabled": False,
+    "postproxy_api_key": "",
+    "postproxy_profile_group_id": "",
+    "postproxy_daily_publish_limit": 2,
+    "smtp_host": "",
+    "smtp_port": 587,
+    "smtp_user": "",
+    "smtp_password": "",
+    "smtp_from": "",
+    "smtp_tls": True,
     "public_base_url": "",
     "instagram_search_hashtags": [
         "aivideo", "runwaygen3", "soraai", "aifilmmaking",
@@ -121,7 +242,7 @@ def load_settings():
                 settings[k] = True
             elif env_val.lower() == "false":
                 settings[k] = False
-            elif k in ("autonomous_hour", "autonomous_video_duration"):
+            elif k in ("autonomous_hour", "autonomous_video_duration", "smtp_port", "postproxy_daily_publish_limit"):
                 try:
                     settings[k] = int(env_val)
                 except:
@@ -138,8 +259,7 @@ def load_settings():
 
 def save_settings(settings):
     try:
-        with open(SETTINGS_FILE, "w") as f:
-            json.dump(settings, f, indent=4)
+        write_json_file(SETTINGS_FILE, settings)
     except Exception as e:
         logger.error(f"Error saving settings file: {e}")
 
@@ -154,12 +274,16 @@ class SettingsSchema(BaseModel):
     linkedin_person_urn: str
     mock_mode: bool
     runway_api_key: str
+    fal_api_key: str
     autonomous_posting: bool
     autonomous_hour: int
     autonomous_platforms: List[str]
     autonomous_video_engine: str
     autonomous_video_duration: int
     require_autopilot_approval: bool
+    viral_template_enabled: bool = False
+    viral_template_style: str = "hook_burst"
+    viral_template_quality: str = "standard"
     meta_app_id: str
     meta_app_secret: str
     instagram_access_token: str
@@ -175,12 +299,35 @@ class SettingsSchema(BaseModel):
     youtube_refresh_token: str
     threads_access_token: str
     threads_user_id: str
+    report_email_to: str = ""
+    report_email_provider: str = "smtp"
+    resend_api_key: str = ""
+    resend_from: str = ""
+    postproxy_enabled: bool = False
+    postproxy_api_key: str = ""
+    postproxy_profile_group_id: str = ""
+    postproxy_daily_publish_limit: int = 2
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_tls: bool = True
     public_base_url: str
     instagram_search_hashtags: List[str]
+
+class LoginRequest(BaseModel):
+    password: str
 
 class AnalyzeRequest(BaseModel):
     video_path: str
     website_url: str
+
+class ApplyTemplateRequest(BaseModel):
+    video_path: str
+    template_id: Optional[str] = None
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
 
 class PublishTwitterRequest(BaseModel):
     text: Optional[str] = None
@@ -192,15 +339,53 @@ class PublishLinkedinRequest(BaseModel):
     text: str
     video_path: Optional[str] = None
 
+class PostProxyConnectRequest(BaseModel):
+    platform: str
+    redirect_url: Optional[str] = None
+    profile_group_id: Optional[str] = None
+
+class ControlledPostProxyPublishRequest(BaseModel):
+    platforms: Optional[List[str]] = None
+    text: Optional[str] = None
+    video_path: Optional[str] = None
+    campaign_title: Optional[str] = None
+
+def resolve_local_video_path(video_path: str) -> str:
+    if not video_path:
+        raise ValueError("Missing video_path.")
+    if video_path.startswith("/static/assets/generated/"):
+        candidate = os.path.join(GENERATED_DIR, os.path.basename(video_path))
+    elif video_path.startswith("/static/"):
+        candidate = os.path.join(BASE_DIR, video_path.lstrip("/"))
+    elif video_path.startswith("static/assets/generated/"):
+        candidate = os.path.join(GENERATED_DIR, os.path.basename(video_path))
+    elif video_path.startswith("static/"):
+        candidate = os.path.join(BASE_DIR, video_path)
+    elif os.path.isabs(video_path):
+        candidate = video_path
+    else:
+        candidate = os.path.join(BASE_DIR, video_path)
+
+    resolved = os.path.realpath(candidate)
+    allowed_roots = (
+        os.path.realpath(UPLOAD_DIR),
+        os.path.realpath(GENERATED_DIR),
+        os.path.realpath(os.path.join(BASE_DIR, "static")),
+    )
+    if not any(os.path.commonpath((resolved, root)) == root for root in allowed_roots):
+        raise ValueError("video_path must reference an uploaded or generated media file.")
+    extension = os.path.splitext(resolved)[1].lower()
+    if extension not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise ValueError("video_path must reference a supported video file.")
+    return resolved
+
 def upload_video_to_twitter(video_path: str, settings: dict) -> Optional[int]:
     required_keys = ["twitter_consumer_key", "twitter_consumer_secret", "twitter_access_token", "twitter_access_token_secret"]
     if not all(settings.get(k) for k in required_keys):
         logger.error("Missing Twitter API credentials for video upload.")
         return None
         
-    abs_video_path = video_path
-    if video_path.startswith("/static/"):
-        abs_video_path = os.path.join(BASE_DIR, video_path.lstrip("/"))
+    abs_video_path = resolve_local_video_path(video_path)
         
     if not os.path.exists(abs_video_path):
         logger.error(f"Twitter upload: Video file does not exist at {abs_video_path}")
@@ -227,9 +412,7 @@ def upload_video_to_linkedin(video_path: str, author_urn: str, settings: dict) -
         logger.error("Missing LinkedIn access token for video upload.")
         return None
         
-    abs_video_path = video_path
-    if video_path.startswith("/static/"):
-        abs_video_path = os.path.join(BASE_DIR, video_path.lstrip("/"))
+    abs_video_path = resolve_local_video_path(video_path)
         
     if not os.path.exists(abs_video_path):
         logger.error(f"LinkedIn upload: Video file does not exist at {abs_video_path}")
@@ -293,11 +476,123 @@ def get_public_video_url(post: dict, settings: dict, platform_key: str = "") -> 
             "(e.g. your Railway production URL) before publishing to these platforms."
         )
     video_path = post.get("video_path")
-    if platform_key in ("instagram", "tiktok") and post.get("vertical_video_path"):
+    if platform_key in ("instagram", "tiktok", "youtube") and post.get("vertical_video_path"):
         video_path = post["vertical_video_path"]
     if not video_path:
         raise ValueError("This post has no video attached — Instagram/TikTok/Facebook/Threads require a video.")
     return f"{base_url}{video_path}"
+
+def get_video_duration_seconds(video_path: str) -> Optional[float]:
+    try:
+        res = subprocess.run(
+            [
+                get_binary_path("ffprobe"),
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                video_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return float(res.stdout.strip())
+    except Exception as e:
+        logger.warning(f"Could not read video duration for {video_path}: {e}")
+    return None
+
+def ensure_min_video_duration(local_path: str, min_duration_sec: int = 5) -> str:
+    duration = get_video_duration_seconds(local_path)
+    if duration is None or duration >= min_duration_sec:
+        return local_path
+    base, ext = os.path.splitext(local_path)
+    extended_path = f"{base}_min{min_duration_sec}{ext or '.mp4'}"
+    if os.path.exists(extended_path):
+        return extended_path
+    logger.info(f"Extending short video {local_path} from {duration:.2f}s to {min_duration_sec}s for provider compatibility.")
+    res = subprocess.run(
+        [
+            get_binary_path("ffmpeg"), "-y",
+            "-stream_loop", "-1",
+            "-i", local_path,
+            "-t", str(min_duration_sec),
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "22",
+            "-pix_fmt", "yuv420p",
+            "-an",
+            "-movflags", "+faststart",
+            extended_path,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    if res.returncode != 0 or not os.path.exists(extended_path):
+        raise ValueError(f"Failed to extend short video for provider compatibility: {res.stderr[:500]}")
+    return extended_path
+
+def ensure_meta_compatible_video(local_path: str, min_duration_sec: int = 5) -> str:
+    if f"_meta{min_duration_sec}" in os.path.basename(local_path):
+        return local_path
+    duration = get_video_duration_seconds(local_path) or min_duration_sec
+    target_duration = max(float(duration), float(min_duration_sec))
+    base, ext = os.path.splitext(local_path)
+    meta_path = f"{base}_meta{min_duration_sec}{ext or '.mp4'}"
+    if os.path.exists(meta_path):
+        return meta_path
+    logger.info(f"Transcoding {local_path} to Meta-compatible H.264/AAC MP4 at {target_duration:.2f}s.")
+    res = subprocess.run(
+        [
+            get_binary_path("ffmpeg"), "-y",
+            "-stream_loop", "-1",
+            "-i", local_path,
+            "-f", "lavfi",
+            "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+            "-t", f"{target_duration:.3f}",
+            "-shortest",
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "22",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-movflags", "+faststart",
+            meta_path,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if res.returncode != 0 or not os.path.exists(meta_path):
+        raise ValueError(f"Failed to create Meta-compatible video: {res.stderr[:500]}")
+    return meta_path
+
+def ensure_vertical_video_variant(post: dict, min_duration_sec: int = 5) -> Optional[str]:
+    if post.get("vertical_video_path"):
+        vertical_path = resolve_local_video_path(post["vertical_video_path"])
+        compatible = ensure_meta_compatible_video(vertical_path, min_duration_sec)
+        if compatible != vertical_path:
+            post["vertical_video_path"] = f"/static/assets/generated/{os.path.basename(compatible)}"
+        return post.get("vertical_video_path")
+    source_public = post.get("video_path")
+    if not source_public:
+        return None
+    source_path = resolve_local_video_path(source_public)
+    if not os.path.exists(source_path):
+        raise ValueError(f"Source video file does not exist at {source_path}")
+    base_name = os.path.splitext(os.path.basename(source_path))[0]
+    vertical_name = f"{base_name}_vertical_9x16.mp4"
+    vertical_path = os.path.join(GENERATED_DIR, vertical_name)
+    if not os.path.exists(vertical_path):
+        font_path = get_font_path()
+        render_variant_with_fallback(source_path, vertical_path, 1080, 1920, "", font_path, 320)
+    compatible = ensure_meta_compatible_video(vertical_path, min_duration_sec)
+    if compatible != vertical_path:
+        vertical_name = os.path.basename(compatible)
+    post["vertical_video_path"] = f"/static/assets/generated/{vertical_name}"
+    return post["vertical_video_path"]
 
 def publish_instagram_post(post: dict, settings: dict):
     access_token = settings.get("instagram_access_token")
@@ -305,6 +600,7 @@ def publish_instagram_post(post: dict, settings: dict):
     if not access_token or not ig_user_id:
         raise ValueError("Missing Instagram credentials (access token / business account ID).")
 
+    ensure_vertical_video_variant(post, min_duration_sec=5)
     video_url = get_public_video_url(post, settings, "instagram")
     create_url = f"https://graph.facebook.com/v21.0/{ig_user_id}/media"
     create_res = requests.post(create_url, data={
@@ -321,7 +617,7 @@ def publish_instagram_post(post: dict, settings: dict):
     status_url = f"https://graph.facebook.com/v21.0/{creation_id}"
     for _ in range(30):
         time.sleep(5)
-        status_res = requests.get(status_url, params={"fields": "status_code", "access_token": access_token})
+        status_res = requests.get(status_url, params={"fields": "status_code,status", "access_token": access_token})
         status_code = status_res.json().get("status_code")
         if status_code == "FINISHED":
             break
@@ -391,13 +687,21 @@ def publish_facebook_post(post: dict, settings: dict):
     if not access_token or not page_id:
         raise ValueError("Missing Facebook credentials (page access token / page ID).")
 
-    video_url = get_public_video_url(post, settings)
+    video_path = post.get("vertical_video_path") or post.get("video_path")
+    if not video_path:
+        raise ValueError("This post has no video attached — Facebook requires a video.")
+    abs_video_path = ensure_min_video_duration(resolve_local_video_path(video_path), 5)
     url = f"https://graph.facebook.com/v21.0/{page_id}/videos"
-    res = requests.post(url, data={
-        "file_url": video_url,
-        "description": post.get("text", ""),
-        "access_token": access_token
-    })
+    with open(abs_video_path, "rb") as video_file:
+        res = requests.post(
+            url,
+            data={
+                "description": post.get("text", ""),
+                "access_token": access_token
+            },
+            files={"source": (os.path.basename(abs_video_path), video_file, "video/mp4")},
+            timeout=300,
+        )
     if res.status_code != 200:
         raise ValueError(f"Facebook video publish failed: {res.text}")
     return res.json()
@@ -454,12 +758,10 @@ def publish_youtube_short(post: dict, settings: dict):
     if not all(settings.get(k) for k in ["youtube_client_id", "youtube_client_secret", "youtube_refresh_token"]):
         raise ValueError("Missing YouTube credentials (client ID / secret / refresh token).")
 
-    video_path = post.get("video_path")
+    video_path = post.get("vertical_video_path") or post.get("video_path")
     if not video_path:
         raise ValueError("This post has no video attached — YouTube requires a video.")
-    abs_video_path = video_path
-    if video_path.startswith("/static/"):
-        abs_video_path = os.path.join(BASE_DIR, video_path.lstrip("/"))
+    abs_video_path = resolve_local_video_path(video_path)
     if not os.path.exists(abs_video_path):
         raise ValueError(f"Video file does not exist at {abs_video_path}")
 
@@ -493,17 +795,279 @@ def publish_youtube_short(post: dict, settings: dict):
         raise ValueError(f"YouTube video upload failed: {upload_res.text}")
     return upload_res.json()
 
+POSTPROXY_API_BASE = "https://api.postproxy.dev/api"
+
+def postproxy_headers(settings: dict) -> dict:
+    api_key = settings.get("postproxy_api_key") or os.environ.get("POSTPROXY_API_KEY")
+    if not api_key:
+        raise ValueError("Missing PostProxy API key.")
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+def postproxy_get(settings: dict, path: str, timeout: int = 60) -> dict:
+    res = requests.get(f"{POSTPROXY_API_BASE}{path}", headers=postproxy_headers(settings), timeout=timeout)
+    if res.status_code >= 400:
+        raise ValueError(f"PostProxy GET {path} failed HTTP {res.status_code}: {res.text[:500]}")
+    return res.json()
+
+def postproxy_post(settings: dict, path: str, payload: dict, timeout: int = 120) -> dict:
+    res = requests.post(f"{POSTPROXY_API_BASE}{path}", headers=postproxy_headers(settings), json=payload, timeout=timeout)
+    if res.status_code >= 400:
+        raise ValueError(f"PostProxy POST {path} failed HTTP {res.status_code}: {res.text[:500]}")
+    return res.json()
+
+def postproxy_profiles(settings: dict) -> List[dict]:
+    return postproxy_get(settings, "/profiles").get("data", [])
+
+def postproxy_placements(settings: dict, profile_id: str) -> List[dict]:
+    if not profile_id:
+        return []
+    return postproxy_get(settings, f"/profiles/{profile_id}/placements").get("data", [])
+
+def postproxy_profile_groups(settings: dict) -> List[dict]:
+    return postproxy_get(settings, "/profile_groups").get("data", [])
+
+def resolve_postproxy_profile_group_id(settings: dict) -> str:
+    configured = settings.get("postproxy_profile_group_id") or os.environ.get("POSTPROXY_PROFILE_GROUP_ID")
+    if configured:
+        return configured
+    groups = postproxy_profile_groups(settings)
+    if not groups:
+        raise ValueError("No PostProxy profile groups found.")
+    return groups[0]["id"]
+
+def platform_to_postproxy(platform: str) -> str:
+    mapping = {
+        "x": "twitter",
+        "twitter": "twitter",
+        "linkedin": "linkedin",
+        "instagram": "instagram",
+        "facebook": "facebook",
+        "tiktok": "tiktok",
+        "youtube": "youtube",
+        "threads": "threads",
+        "pinterest": "pinterest",
+        "bluesky": "bluesky",
+        "google_business": "google_business",
+    }
+    return mapping.get(platform.lower(), platform.lower())
+
+def postproxy_profile_for_platform(settings: dict, platform: str) -> Optional[dict]:
+    mapped = platform_to_postproxy(platform)
+    for profile in postproxy_profiles(settings):
+        if profile.get("platform") == mapped and profile.get("status") == "active":
+            return profile
+    return None
+
+def first_postproxy_placement_id(settings: dict, platform: str) -> Optional[str]:
+    profile = postproxy_profile_for_platform(settings, platform)
+    if not profile:
+        return None
+    placements = postproxy_placements(settings, profile.get("id", ""))
+    if not placements:
+        return None
+    return placements[0].get("id")
+
+def postproxy_media_url(post: dict, settings: dict, platforms: List[str]) -> Optional[str]:
+    if not post.get("video_path"):
+        return None
+    if any(p in platforms for p in ("instagram", "tiktok", "youtube")):
+        ensure_vertical_video_variant(post)
+    platform_key = "instagram" if "instagram" in platforms else ("tiktok" if "tiktok" in platforms else "")
+    return get_public_video_url(post, settings, platform_key)
+
+def estimated_postproxy_publish_units(post: dict, platforms: List[str]) -> int:
+    supported = {"twitter", "linkedin", "instagram", "facebook", "tiktok", "youtube", "threads", "pinterest", "bluesky", "google_business"}
+    mapped_platforms = [platform_to_postproxy(p) for p in platforms if platform_to_postproxy(p) in supported]
+    if not mapped_platforms:
+        return 0
+    if post.get("video_path") and "google_business" in mapped_platforms and len(mapped_platforms) > 1:
+        return 2
+    return 1
+
+def postproxy_publish_units_used_today(posts: Optional[List[dict]] = None, now: Optional[datetime] = None) -> int:
+    posts = posts if posts is not None else load_scheduled_posts()
+    today = (now or datetime.now()).date()
+    used = 0
+    for post in posts:
+        posted_at = post.get("posted_at")
+        if not posted_at:
+            continue
+        try:
+            post_date = datetime.fromisoformat(posted_at).date()
+        except ValueError:
+            continue
+        if post_date != today:
+            continue
+        post_ids = post.get("postproxy_post_ids") or ([post.get("postproxy_post_id")] if post.get("postproxy_post_id") else [])
+        used += len([pid for pid in post_ids if pid])
+    return used
+
+def enforce_postproxy_daily_limit(post: dict, settings: dict, platforms: List[str]) -> Optional[dict]:
+    if not settings.get("postproxy_enabled") or not (settings.get("postproxy_api_key") or os.environ.get("POSTPROXY_API_KEY")):
+        return None
+    try:
+        limit = int(settings.get("postproxy_daily_publish_limit", 2))
+    except (TypeError, ValueError):
+        limit = 2
+    limit = max(1, limit)
+    requested_units = estimated_postproxy_publish_units(post, platforms)
+    if requested_units <= 0:
+        return None
+    used_units = postproxy_publish_units_used_today()
+    if used_units + requested_units <= limit:
+        return None
+    message = (
+        f"PostProxy daily safety limit reached: {used_units}/{limit} post records already used today; "
+        f"this publish needs {requested_units}. Approve this draft manually or raise the daily limit in Settings."
+    )
+    logger.warning(message)
+    return {
+        "successes": [],
+        "errors": [message],
+        "tweet_id": None,
+        "tweet_ids": None,
+        "blocked_by_daily_limit": True,
+        "postproxy_daily_used": used_units,
+        "postproxy_daily_limit": limit,
+        "postproxy_requested_units": requested_units,
+    }
+
+def publish_via_postproxy(post: dict, settings: dict, platforms: List[str]) -> dict:
+    supported = {"twitter", "linkedin", "instagram", "facebook", "tiktok", "youtube", "threads", "pinterest", "bluesky", "google_business"}
+    mapped_platforms = [platform_to_postproxy(p) for p in platforms if platform_to_postproxy(p) in supported]
+    if not mapped_platforms:
+        return {"successes": [], "errors": ["PostProxy: no supported platforms selected."]}
+    media_url = postproxy_media_url(post, settings, mapped_platforms)
+
+    def publish_batch(batch_platforms: List[str], include_media: bool) -> dict:
+        platform_params = {}
+        if "instagram" in batch_platforms and include_media:
+            platform_params["instagram"] = {"format": "reel"}
+        if "facebook" in batch_platforms:
+            page_id = first_postproxy_placement_id(settings, "facebook")
+            if not page_id:
+                raise ValueError("Facebook PostProxy profile has no available Page placement.")
+            platform_params["facebook"] = {"page_id": page_id}
+        if "google_business" in batch_platforms:
+            location_id = first_postproxy_placement_id(settings, "google_business")
+            if not location_id:
+                raise ValueError("Google Business PostProxy profile has no available location placement.")
+            platform_params["google_business"] = {"location_id": location_id}
+        if "youtube" in batch_platforms:
+            platform_params["youtube"] = {
+                "title": (post.get("campaign_title") or (post.get("text") or "6Frame Studio")[:80])[:100],
+                "privacy_status": "public",
+                "made_for_kids": False,
+            }
+        payload = {
+            "post": {
+                "body": post.get("text", ""),
+                "draft": False,
+            },
+            "profiles": batch_platforms,
+        }
+        if include_media and media_url:
+            payload["media"] = [media_url]
+        if platform_params:
+            payload["platforms"] = platform_params
+        return postproxy_post(settings, "/posts", payload, timeout=180)
+
+    batches = []
+    if media_url and "google_business" in mapped_platforms:
+        media_platforms = [p for p in mapped_platforms if p != "google_business"]
+        if media_platforms:
+            batches.append((media_platforms, True))
+        batches.append((["google_business"], False))
+    else:
+        batches.append((mapped_platforms, bool(media_url)))
+
+    results = [publish_batch(batch_platforms, include_media) for batch_platforms, include_media in batches]
+    platform_results = []
+    for result in results:
+        platform_results.extend(result.get("platforms") or [])
+    successes = []
+    errors = []
+    for item in platform_results:
+        platform = item.get("platform") or "unknown"
+        status = item.get("status")
+        if status in ("published", "processing", "processed", "scheduled", "pending"):
+            successes.append(platform)
+        else:
+            errors.append(f"{platform}: {item.get('error') or status or 'unknown PostProxy error'}")
+    if not platform_results and any(result.get("id") for result in results):
+        successes = mapped_platforms
+    post_ids = [result.get("id") for result in results if result.get("id")]
+    post["postproxy_post_id"] = post_ids[0] if post_ids else None
+    post["postproxy_post_ids"] = post_ids
+    post["postproxy_result"] = results[0] if len(results) == 1 else {"posts": results, "platforms": platform_results}
+    return {
+        "successes": successes,
+        "errors": errors,
+        "tweet_id": None,
+        "tweet_ids": None,
+        "postproxy_post_id": post.get("postproxy_post_id"),
+        "postproxy_post_ids": post_ids,
+        "postproxy_result": post.get("postproxy_result"),
+    }
+
+def postproxy_reply_to_comment(settings: dict, target: dict) -> dict:
+    post_id = target.get("postproxy_post_id") or target.get("post_id")
+    platform = target.get("platform", "")
+    profile_id = target.get("postproxy_profile_id") or target.get("profile_id")
+    parent_id = target.get("postproxy_comment_id") or target.get("source_comment_id")
+    if not post_id or not parent_id:
+        raise ValueError("PostProxy reply requires postproxy_post_id and source comment id.")
+    if not profile_id:
+        profile = postproxy_profile_for_platform(settings, platform)
+        profile_id = profile.get("id") if profile else ""
+    if not profile_id:
+        raise ValueError(f"No active PostProxy profile found for {platform}.")
+    return postproxy_post(
+        settings,
+        f"/posts/{post_id}/comments?profile_id={profile_id}",
+        {"body": target["drafted_reply"], "parent_id": parent_id},
+        timeout=60,
+    )
+
 class GenerateVideoRequest(BaseModel):
     prompt: str
     engine: str = "google_veo"
     duration: int = 5
 
+@app.get("/api/auth/status")
+def auth_status(request: Request):
+    return {"auth_required": auth_enabled(), "authenticated": request_is_authenticated(request)}
+
+@app.post("/api/auth/login")
+def auth_login(req: LoginRequest, response: Response):
+    expected = os.environ.get("ADMIN_PASSWORD", "")
+    if not expected:
+        return {"status": "SUCCESS", "auth_required": False}
+    if not hmac.compare_digest(req.password, expected):
+        raise HTTPException(status_code=401, detail="Invalid password.")
+    secure_cookie = os.environ.get("COOKIE_SECURE", "true").lower() != "false"
+    response.set_cookie(
+        "admin_session",
+        session_signature(),
+        httponly=True,
+        secure=secure_cookie,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 14,
+        path="/",
+    )
+    return {"status": "SUCCESS"}
+
 SECRET_SETTING_KEYS = [
     "gemini_api_key", "twitter_consumer_key", "twitter_consumer_secret",
-    "twitter_access_token", "twitter_access_token_secret", "linkedin_access_token", "runway_api_key",
+    "twitter_access_token", "twitter_access_token_secret", "linkedin_access_token", "runway_api_key", "fal_api_key",
     "meta_app_secret", "instagram_access_token", "facebook_page_access_token",
     "tiktok_client_secret", "tiktok_access_token", "tiktok_refresh_token",
-    "youtube_client_secret", "youtube_refresh_token", "threads_access_token"
+    "youtube_client_secret", "youtube_refresh_token", "threads_access_token",
+    "smtp_password", "resend_api_key", "postproxy_api_key"
 ]
 
 @app.get("/api/settings")
@@ -530,21 +1094,128 @@ def update_settings(data: SettingsSchema):
     save_settings(new_data)
     return {"message": "Settings updated successfully."}
 
+@app.get("/api/postproxy/profiles")
+def get_postproxy_profiles():
+    settings = load_settings()
+    try:
+        groups = postproxy_profile_groups(settings)
+        profiles = postproxy_profiles(settings)
+        return {
+            "status": "SUCCESS",
+            "enabled": bool(settings.get("postproxy_enabled")),
+            "profile_group_id": settings.get("postproxy_profile_group_id") or (groups[0]["id"] if groups else ""),
+            "groups": groups,
+            "profiles": profiles,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/postproxy/posts/{post_id}")
+def get_postproxy_post_status(post_id: str):
+    settings = load_settings()
+    try:
+        return {"status": "SUCCESS", "post": postproxy_get(settings, f"/posts/{post_id}", timeout=60)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/postproxy/connect")
+def create_postproxy_connection(req: PostProxyConnectRequest):
+    settings = load_settings()
+    try:
+        group_id = req.profile_group_id or settings.get("postproxy_profile_group_id") or resolve_postproxy_profile_group_id(settings)
+        redirect_url = req.redirect_url or f"{settings.get('public_base_url', '').rstrip('/')}/"
+        payload = {
+            "platform": platform_to_postproxy(req.platform),
+            "redirect_url": redirect_url,
+        }
+        result = postproxy_post(settings, f"/profile_groups/{group_id}/initialize_connection", payload, timeout=60)
+        return {"status": "SUCCESS", "profile_group_id": group_id, **result}
+    except Exception as e:
+        if "already connected" in str(e).lower():
+            return {
+                "status": "SUCCESS",
+                "already_connected": True,
+                "profile_group_id": req.profile_group_id or settings.get("postproxy_profile_group_id") or "",
+                "message": str(e),
+        }
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/postproxy/test-publish")
+async def create_postproxy_test_publish(req: ControlledPostProxyPublishRequest):
+    settings = load_settings()
+    platforms = req.platforms or settings.get("autonomous_platforms") or ["twitter", "linkedin"]
+    platforms = [platform_to_postproxy(p) for p in platforms if p]
+    post = {
+        "id": str(uuid.uuid4()),
+        "platform": ",".join(platforms),
+        "text": req.text or (
+            "6Frame Studio live automation verification. "
+            "This controlled post confirms the production PostProxy publishing pipeline is active."
+        ),
+        "thread": None,
+        "scheduled_time": datetime.now().isoformat(),
+        "campaign_title": req.campaign_title or "Controlled PostProxy Publish Verification",
+        "video_path": req.video_path or "",
+        "status": "PROCESSING",
+        "created_at": datetime.now().isoformat(),
+    }
+    posts = load_scheduled_posts()
+    posts.insert(0, post)
+    save_scheduled_posts(posts)
+    result = await publish_post_to_platforms(post, settings)
+    if result.get("successes") and not result.get("errors"):
+        post["status"] = "SUCCESS"
+        post["error_message"] = None
+    elif result.get("successes"):
+        post["status"] = "PARTIAL_SUCCESS"
+        post["error_message"] = f"Success: {', '.join(result.get('successes', []))}. Errors: {'; '.join(result.get('errors', []))}"
+    else:
+        post["status"] = "FAILED"
+        post["error_message"] = "; ".join(result.get("errors", [])) or "PostProxy publish failed."
+    post["posted_at"] = datetime.now().isoformat()
+    apply_publish_result_to_post(post, result)
+    posts = load_scheduled_posts()
+    for idx, existing in enumerate(posts):
+        if existing.get("id") == post["id"]:
+            posts[idx] = post
+            break
+    save_scheduled_posts(posts)
+    return {"status": post["status"], "post": post, "result": result}
+
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     file_id = str(uuid.uuid4())
-    ext = os.path.splitext(file.filename)[1]
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Unsupported upload type. Use MP4, MOV, M4V, or WEBM.")
     filename = f"{file_id}{ext}"
     dest_path = os.path.join(UPLOAD_DIR, filename)
-    
+    written = 0
     with open(dest_path, "wb") as buffer:
-        content = await file.read()
-        buffer.write(content)
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > MAX_UPLOAD_BYTES:
+                try:
+                    os.remove(dest_path)
+                except OSError:
+                    pass
+                raise HTTPException(status_code=413, detail=f"Upload exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit.")
+            buffer.write(chunk)
         
     return {"video_path": dest_path, "filename": file.filename}
 
 @app.post("/api/analyze")
 def analyze_video(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+    try:
+        source_path = resolve_local_video_path(req.video_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not os.path.isfile(source_path):
+        raise HTTPException(status_code=404, detail="Uploaded video file was not found.")
+
     job_id = str(uuid.uuid4())
     settings = load_settings()
     
@@ -555,7 +1226,7 @@ def analyze_video(req: AnalyzeRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(
         run_multi_agent_pipeline,
         job_id=job_id,
-        video_path=req.video_path,
+        video_path=source_path,
         website_url=req.website_url,
         settings=settings
     )
@@ -566,6 +1237,74 @@ def analyze_video(req: AnalyzeRequest, background_tasks: BackgroundTasks):
 def get_status(job_id: str):
     return get_job_status(job_id)
 
+@app.get("/api/viral-templates")
+def get_viral_templates():
+    return {"templates": list_viral_templates()}
+
+def persist_trend_scan_result(result: Any):
+    if not isinstance(result, dict):
+        return
+    trends = result.get("trends")
+    if not isinstance(trends, list):
+        return
+    state = load_growth_os()
+    state["last_trend_scan"] = trends[:25]
+    state["last_trend_scan_at"] = datetime.now().isoformat()
+    save_growth_os(state)
+
+def run_template_render_job(job_id: str, req: ApplyTemplateRequest, settings: dict):
+    try:
+        update_job_status(job_id, "PROCESSING", 10, "Preparing viral template render...")
+        source_path = resolve_local_video_path(req.video_path)
+        if not os.path.exists(source_path):
+            raise FileNotFoundError(f"Source video not found: {req.video_path}")
+
+        template_id = req.template_id or settings.get("viral_template_style", "hook_burst")
+        title = req.title or "6Frame Studio"
+        subtitle = req.subtitle or "AI-native social video system"
+        filename = f"{job_id}_viral_template.mp4"
+        output_path = os.path.join(GENERATED_DIR, filename)
+        work_root = os.path.join(UPLOAD_DIR, "template_renders")
+        os.makedirs(work_root, exist_ok=True)
+
+        update_job_status(job_id, "PROCESSING", 35, "Rendering template with HyperFrames...")
+        render_info = render_template_video(
+            source_video_path=source_path,
+            output_path=output_path,
+            template_id=template_id,
+            title=title,
+            subtitle=subtitle,
+            work_root=work_root,
+            quality=settings.get("viral_template_quality", "standard"),
+        )
+        public_path = f"/static/assets/generated/{filename}"
+        update_job_status(
+            job_id,
+            "SUCCESS",
+            100,
+            "Template render complete.",
+            {
+                "video_path": public_path,
+                "template_id": render_info["template_id"],
+                "template_label": render_info["template_label"],
+            },
+        )
+    except Exception as e:
+        logger.exception("Template render failed")
+        update_job_status(job_id, "FAILED", 0, f"Template render failed: {str(e)}")
+
+@app.post("/api/apply-template")
+def apply_template(req: ApplyTemplateRequest, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    settings = load_settings()
+    update_job_status(job_id, "PENDING", 0, "Template render queued...")
+    background_tasks.add_task(run_template_render_job, job_id, req, settings)
+    return {"job_id": job_id}
+
+@app.get("/api/template-status/{job_id}")
+def get_template_status(job_id: str):
+    return get_job_status(job_id)
+
 @app.post("/api/viral-search")
 def start_viral_search(background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
@@ -574,12 +1313,12 @@ def start_viral_search(background_tasks: BackgroundTasks):
     # Initialize status
     update_job_status(job_id, "PENDING", 0, "Trend search job enqueued...")
     
-    # Trigger background task
-    background_tasks.add_task(
-        run_live_trend_scanner,
-        job_id=job_id,
-        settings=settings
-    )
+    def run_and_persist_trends():
+        run_live_trend_scanner(job_id=job_id, settings=settings)
+        status = get_job_status(job_id)
+        if status.get("status") == "SUCCESS":
+            persist_trend_scan_result(status.get("result"))
+    background_tasks.add_task(run_and_persist_trends)
     
     return {"job_id": job_id}
 
@@ -591,13 +1330,14 @@ def ensure_video_under_limit(video_path: str, max_duration_sec: int = 90) -> str
     """ Checks video duration and returns a trimmed path if it exceeds limit. """
     import subprocess
     import os
+    abs_video_path = resolve_local_video_path(video_path)
     
     probe_cmd = [
         get_binary_path("ffprobe"),
         "-v", "error",
         "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1",
-        video_path
+        abs_video_path
     ]
     try:
         res = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=5)
@@ -605,16 +1345,16 @@ def ensure_video_under_limit(video_path: str, max_duration_sec: int = 90) -> str
             duration = float(res.stdout.strip())
             logger.info(f"Checking video duration: {duration}s (max allowed: {max_duration_sec}s)")
             if duration <= max_duration_sec:
-                return video_path
+                return abs_video_path
             
             logger.info(f"Video is too long ({duration}s). Trimming to {max_duration_sec}s...")
-            base, ext = os.path.splitext(video_path)
+            base, ext = os.path.splitext(abs_video_path)
             trimmed_path = f"{base}_trimmed{ext}"
             
             trim_cmd = [
                 get_binary_path("ffmpeg"), "-y",
                 "-ss", "00:00:00",
-                "-i", video_path,
+                "-i", abs_video_path,
                 "-t", str(max_duration_sec),
                 "-c:v", "libx264",
                 "-preset", "veryfast",
@@ -628,7 +1368,7 @@ def ensure_video_under_limit(video_path: str, max_duration_sec: int = 90) -> str
                 return trimmed_path
     except Exception as e:
         logger.error(f"Error checking duration or trimming video: {e}")
-    return video_path
+    return abs_video_path
 
 @app.post("/api/publish/twitter")
 def publish_twitter(req: PublishTwitterRequest):
@@ -822,7 +1562,7 @@ class LoadOriginalVideoRequest(BaseModel):
     # When False, refuses to silently substitute a different video (YouTube search
     # match or the safety-fallback clip) if the exact URL can't be downloaded —
     # used by the Repurposer Workshop, where the point is repurposing THIS video.
-    allow_fallback: bool = True
+    allow_fallback: bool = False
 
 @app.post("/api/load-original-video")
 def load_original_video(req: LoadOriginalVideoRequest, background_tasks: BackgroundTasks):
@@ -858,7 +1598,14 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
                 "results?search_query=" in target_url
             )
             
-            if is_mock_url and req.title:
+            if is_mock_url and not req.allow_fallback:
+                update_job_status(
+                    job_id, "FAILED", 0,
+                    "Refusing to substitute a placeholder/search URL. Provide the exact original video URL or explicitly enable fallback."
+                )
+                return
+
+            if is_mock_url and req.title and req.allow_fallback:
                 logger.info(f"Mock URL detected. Swapping to YouTube search for: {req.title}")
                 target_url = f"ytsearch1:{req.title}"
             
@@ -904,7 +1651,7 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
                     ]
                     result = await asyncio.to_thread(subprocess.run, cmd_search, capture_output=True, text=True, timeout=90)
 
-                if result.returncode != 0:
+                if result.returncode != 0 and req.allow_fallback:
                     logger.info("Search fallback failed. Using verified cinematic trailer fallback...")
                     cmd_final_safety = [
                         get_binary_path("yt-dlp"),
@@ -917,6 +1664,12 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
                     if result.returncode != 0:
                         update_job_status(job_id, "FAILED", 0, f"Failed to download video: {result.stderr}")
                         return
+                elif result.returncode != 0:
+                    update_job_status(
+                        job_id, "FAILED", 0,
+                        "Could not download this specific video and fallback is disabled."
+                    )
+                    return
             
             # Find download
             downloaded_file = None
@@ -1001,23 +1754,77 @@ class SchedulePostRequest(BaseModel):
     campaign_title: Optional[str] = "Staged Post"
     video_path: Optional[str] = None
 
-SCHEDULED_POSTS_FILE = os.path.join(BASE_DIR, "scheduled_posts.json")
+SCHEDULED_POSTS_FILE = os.path.join(STATE_DIR, "scheduled_posts.json")
 
 def load_scheduled_posts() -> List[dict]:
-    if os.path.exists(SCHEDULED_POSTS_FILE):
-        try:
-            with open(SCHEDULED_POSTS_FILE, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error reading scheduled posts file: {e}")
-    return []
+    return read_json_file(SCHEDULED_POSTS_FILE, [])
 
 def save_scheduled_posts(posts: List[dict]):
     try:
-        with open(SCHEDULED_POSTS_FILE, "w") as f:
-            json.dump(posts, f, indent=4)
+        write_json_file(SCHEDULED_POSTS_FILE, posts)
     except Exception as e:
         logger.error(f"Error saving scheduled posts file: {e}")
+
+def postproxy_platform_results(post: dict) -> List[dict]:
+    result = post.get("postproxy_result") or {}
+    if isinstance(result.get("platforms"), list):
+        return result["platforms"]
+    rows = []
+    for child in result.get("posts") or []:
+        if isinstance(child, dict):
+            rows.extend(child.get("platforms") or [])
+    return rows
+
+def postproxy_published_platforms(post: dict) -> List[dict]:
+    return [
+        item for item in postproxy_platform_results(post)
+        if item.get("status") == "published"
+    ]
+
+def reconcile_postproxy_posts(posts: List[dict], settings: dict) -> bool:
+    changed = False
+    if not settings.get("postproxy_enabled") or not (settings.get("postproxy_api_key") or os.environ.get("POSTPROXY_API_KEY")):
+        return False
+    for post in posts:
+        post_ids = post.get("postproxy_post_ids") or ([post.get("postproxy_post_id")] if post.get("postproxy_post_id") else [])
+        post_ids = [pid for pid in post_ids if pid]
+        if not post_ids:
+            continue
+        if post.get("status") == "SUCCESS" and postproxy_published_platforms(post):
+            continue
+        try:
+            latest_posts = [postproxy_get(settings, f"/posts/{post_id}", timeout=30) for post_id in post_ids]
+            platform_results = []
+            for latest in latest_posts:
+                platform_results.extend(latest.get("platforms") or [])
+            failures = [
+                item for item in platform_results
+                if item.get("status") not in ("published", "processing", "processed", "scheduled", "pending")
+            ]
+            published = [item for item in platform_results if item.get("status") == "published"]
+            accepted = [
+                item for item in platform_results
+                if item.get("status") in ("published", "processing", "processed", "scheduled", "pending")
+            ]
+            post["postproxy_result"] = latest_posts[0] if len(latest_posts) == 1 else {"posts": latest_posts, "platforms": platform_results}
+            if failures and accepted:
+                post["status"] = "PARTIAL_SUCCESS"
+                post["error_message"] = "; ".join(f"{i.get('platform')}: {i.get('error') or i.get('status')}" for i in failures)
+            elif failures:
+                post["status"] = "FAILED"
+                post["error_message"] = "; ".join(f"{i.get('platform')}: {i.get('error') or i.get('status')}" for i in failures)
+            elif accepted:
+                post["status"] = "SUCCESS"
+                post["error_message"] = None
+            if published:
+                post["postproxy_permalinks"] = {
+                    item.get("platform"): item.get("permalink")
+                    for item in published if item.get("permalink")
+                }
+            changed = True
+        except Exception as e:
+            logger.warning(f"Could not reconcile PostProxy post(s) {post_ids}: {e}")
+    return changed
 
 # ==========================================================================
 # ENGAGEMENT AUTOMATION — Twitter mention fetching + AI-drafted replies,
@@ -1026,38 +1833,24 @@ def save_scheduled_posts(posts: List[dict]):
 # permissions this app doesn't have.
 # ==========================================================================
 
-ENGAGEMENT_QUEUE_FILE = os.path.join(BASE_DIR, "engagement_queue.json")
-ENGAGEMENT_STATE_FILE = os.path.join(BASE_DIR, "engagement_state.json")
+ENGAGEMENT_QUEUE_FILE = os.path.join(STATE_DIR, "engagement_queue.json")
+ENGAGEMENT_STATE_FILE = os.path.join(STATE_DIR, "engagement_state.json")
 
 def load_engagement_queue() -> List[dict]:
-    if os.path.exists(ENGAGEMENT_QUEUE_FILE):
-        try:
-            with open(ENGAGEMENT_QUEUE_FILE, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error reading engagement queue file: {e}")
-    return []
+    return read_json_file(ENGAGEMENT_QUEUE_FILE, [])
 
 def save_engagement_queue(items: List[dict]):
     try:
-        with open(ENGAGEMENT_QUEUE_FILE, "w") as f:
-            json.dump(items, f, indent=4)
+        write_json_file(ENGAGEMENT_QUEUE_FILE, items)
     except Exception as e:
         logger.error(f"Error saving engagement queue file: {e}")
 
 def load_engagement_state() -> dict:
-    if os.path.exists(ENGAGEMENT_STATE_FILE):
-        try:
-            with open(ENGAGEMENT_STATE_FILE, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Error reading engagement state file: {e}")
-    return {}
+    return read_json_file(ENGAGEMENT_STATE_FILE, {})
 
 def save_engagement_state(state: dict):
     try:
-        with open(ENGAGEMENT_STATE_FILE, "w") as f:
-            json.dump(state, f, indent=4)
+        write_json_file(ENGAGEMENT_STATE_FILE, state)
     except Exception as e:
         logger.error(f"Error saving engagement state file: {e}")
 
@@ -1065,6 +1858,11 @@ def fetch_and_draft_mention_replies(settings: dict):
     required_keys = ["twitter_consumer_key", "twitter_consumer_secret", "twitter_access_token", "twitter_access_token_secret"]
     if not all(settings.get(k) for k in required_keys):
         return
+    try:
+        fetch_and_draft_mention_replies_with_bearer(settings)
+        return
+    except Exception as bearer_err:
+        logger.warning(f"Twitter bearer mention fetch failed, trying OAuth1 user-context fallback: {bearer_err}")
     try:
         client = tweepy.Client(
             consumer_key=settings["twitter_consumer_key"],
@@ -1123,7 +1921,91 @@ def fetch_and_draft_mention_replies(settings: dict):
         if newest_id:
             save_engagement_state({"twitter_since_id": newest_id})
     except Exception as e:
-        logger.warning(f"Failed to fetch/draft mention replies (this can happen if your X API access tier doesn't include the mentions timeline): {e}")
+        logger.warning(f"Twitter OAuth1 mention fetch failed: {e}")
+
+def fetch_twitter_bearer_token(settings: dict) -> Optional[str]:
+    consumer_key = settings.get("twitter_consumer_key")
+    consumer_secret = settings.get("twitter_consumer_secret")
+    if not consumer_key or not consumer_secret:
+        return None
+    try:
+        res = requests.post(
+            "https://api.twitter.com/oauth2/token",
+            auth=(consumer_key, consumer_secret),
+            data={"grant_type": "client_credentials"},
+            headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+            timeout=30,
+        )
+        if res.status_code != 200:
+            logger.warning(f"Twitter bearer token request failed: HTTP {res.status_code}")
+            return None
+        return res.json().get("access_token")
+    except Exception as e:
+        logger.warning(f"Twitter bearer token request failed: {e}")
+        return None
+
+def fetch_and_draft_mention_replies_with_bearer(settings: dict):
+    bearer_token = fetch_twitter_bearer_token(settings)
+    access_token = settings.get("twitter_access_token", "")
+    user_id = access_token.split("-")[0] if "-" in access_token else ""
+    if not bearer_token or not user_id:
+        return
+
+    state = load_engagement_state()
+    since_id = state.get("twitter_since_id")
+    params = {
+        "max_results": 20,
+        "tweet.fields": "created_at,author_id",
+        "expansions": "author_id",
+        "user.fields": "username",
+    }
+    if since_id:
+        params["since_id"] = since_id
+    res = requests.get(
+        f"https://api.twitter.com/2/users/{user_id}/mentions",
+        headers={"Authorization": f"Bearer {bearer_token}"},
+        params=params,
+        timeout=30,
+    )
+    if res.status_code != 200:
+        raise RuntimeError(f"Twitter bearer mentions failed: HTTP {res.status_code} {res.text[:180]}")
+    payload = res.json()
+    mentions = payload.get("data") or []
+    if not mentions:
+        return
+    author_lookup = {
+        str(user.get("id")): user.get("username", "unknown")
+        for user in payload.get("includes", {}).get("users", [])
+    }
+    queue = load_engagement_queue()
+    existing_ids = {item.get("source_tweet_id") for item in queue}
+    newest_id = since_id
+    for mention in mentions:
+        mention_id = str(mention.get("id"))
+        if not newest_id or int(mention_id) > int(newest_id):
+            newest_id = mention_id
+        if mention_id in existing_ids:
+            continue
+        author_username = author_lookup.get(str(mention.get("author_id")), "unknown")
+        try:
+            reply_text = draft_engagement_reply(mention.get("text", ""), author_username, settings)
+        except Exception as draft_err:
+            logger.warning(f"Failed to draft reply for mention {mention_id}: {draft_err}")
+            reply_text = ""
+        queue.append({
+            "id": str(uuid.uuid4()),
+            "platform": "twitter",
+            "source_tweet_id": mention_id,
+            "source_author": author_username,
+            "source_text": mention.get("text", ""),
+            "drafted_reply": reply_text,
+            "status": "PENDING_REVIEW",
+            "created_at": datetime.now().isoformat(),
+            "sent_at": None,
+        })
+    save_engagement_queue(queue)
+    if newest_id:
+        save_engagement_state({"twitter_since_id": newest_id})
 
 def resolve_platform_list(platform_field: str) -> List[str]:
     if platform_field == "both":
@@ -1132,7 +2014,7 @@ def resolve_platform_list(platform_field: str) -> List[str]:
         return ["twitter", "linkedin", "instagram", "tiktok", "youtube", "facebook", "threads"]
     return [p.strip() for p in platform_field.split(",") if p.strip()]
 
-async def publish_post_to_platforms(post: dict, settings: dict) -> dict:
+async def publish_post_to_platforms(post: dict, settings: dict, bypass_daily_limit: bool = False) -> dict:
     """Shared publisher used by the scheduler, autopilot approval, and manual publish endpoints.
     Returns {"successes": [...], "errors": [...], "tweet_id": str|None, "tweet_ids": [...]|None}."""
     platforms = resolve_platform_list(post["platform"])
@@ -1140,6 +2022,23 @@ async def publish_post_to_platforms(post: dict, settings: dict) -> dict:
     errors = []
     tweet_id = None
     tweet_ids = None
+    if settings.get("postproxy_enabled") and (settings.get("postproxy_api_key") or os.environ.get("POSTPROXY_API_KEY")):
+        if not bypass_daily_limit:
+            limit_result = enforce_postproxy_daily_limit(post, settings, platforms)
+            if limit_result:
+                return limit_result
+        try:
+            logger.info(f"Publishing post {post.get('id')} through PostProxy for platforms: {platforms}")
+            return publish_via_postproxy(post, settings, platforms)
+        except Exception as pp_err:
+            logger.exception("PostProxy publish failed")
+            return {"successes": [], "errors": [f"PostProxy: {str(pp_err)}"], "tweet_id": None, "tweet_ids": None}
+
+    if post.get("video_path") and any(p in platforms for p in ("instagram", "tiktok", "youtube")):
+        try:
+            ensure_vertical_video_variant(post)
+        except Exception as variant_err:
+            logger.warning(f"Could not prepare vertical platform variant before publishing: {variant_err}")
 
     # 1. Post to Twitter
     if "twitter" in platforms:
@@ -1276,7 +2175,10 @@ async def publish_post_to_platforms(post: dict, settings: dict) -> dict:
 
 def apply_publish_result_to_post(p: dict, result: dict):
     successes, errors = result["successes"], result["errors"]
-    if errors and not successes:
+    if result.get("blocked_by_daily_limit"):
+        p["status"] = "AWAITING_APPROVAL"
+        p["error_message"] = "; ".join(errors)
+    elif errors and not successes:
         p["status"] = "FAILED"
         p["error_message"] = "; ".join(errors)
     elif errors:
@@ -1290,6 +2192,15 @@ def apply_publish_result_to_post(p: dict, result: dict):
         p["tweet_id"] = result["tweet_id"]
     if result.get("tweet_ids"):
         p["tweet_ids"] = result["tweet_ids"]
+    if result.get("postproxy_post_id"):
+        p["postproxy_post_id"] = result["postproxy_post_id"]
+    if result.get("postproxy_result"):
+        p["postproxy_result"] = result["postproxy_result"]
+    if result.get("blocked_by_daily_limit"):
+        p["blocked_by_daily_limit"] = True
+        p["postproxy_daily_limit"] = result.get("postproxy_daily_limit")
+        p["postproxy_daily_used"] = result.get("postproxy_daily_used")
+        p["postproxy_requested_units"] = result.get("postproxy_requested_units")
 
 async def execute_scheduled_post(post: dict):
     settings = load_settings()
@@ -1298,6 +2209,8 @@ async def execute_scheduled_post(post: dict):
     posts = load_scheduled_posts()
     for p in posts:
         if p["id"] == post["id"]:
+            if post.get("vertical_video_path"):
+                p["vertical_video_path"] = post["vertical_video_path"]
             apply_publish_result_to_post(p, result)
             break
     save_scheduled_posts(posts)
@@ -1316,6 +2229,7 @@ async def execute_autonomous_autopost(settings: dict):
         return
         
     result = status.get("result", {})
+    persist_trend_scan_result(result)
     trends = result.get("trends", [])
     if not trends:
         logger.error("Autonomous trend scanning found no trends.")
@@ -1326,7 +2240,7 @@ async def execute_autonomous_autopost(settings: dict):
     
     # Trigger video generation and await completion (engine/duration from Autopilot settings)
     video_job_id = str(uuid.uuid4())
-    video_engine = settings.get("autonomous_video_engine", "runway_gen3")
+    video_engine = settings.get("autonomous_video_engine", "fal_hailuo_23")
     video_duration = int(settings.get("autonomous_video_duration", 10))
     logger.info(f"Autopilot: Starting {video_duration}-second video rendering using {video_engine}...")
     await loop.run_in_executor(
@@ -1356,15 +2270,44 @@ async def execute_autonomous_autopost(settings: dict):
     vertical_video_path = None
     if generated_video_path and any(p in platforms for p in ("instagram", "tiktok")):
         try:
-            abs_source = os.path.join(BASE_DIR, generated_video_path.lstrip("/"))
+            abs_source = resolve_local_video_path(generated_video_path)
             vertical_filename = f"{video_job_id}_vertical_9x16.mp4"
-            abs_vertical = os.path.join(BASE_DIR, "static", "assets", "generated", vertical_filename)
+            abs_vertical = os.path.join(GENERATED_DIR, vertical_filename)
             font_path = get_font_path()
             render_variant_with_fallback(abs_source, abs_vertical, 1080, 1920, "", font_path, 320)
             vertical_video_path = f"/static/assets/generated/{vertical_filename}"
             logger.info(f"Autopilot: Rendered 9:16 vertical variant for Instagram/TikTok: {vertical_video_path}")
         except Exception as e:
             logger.error(f"Autopilot: Failed to render vertical variant, Instagram/TikTok will use the landscape video instead: {e}")
+
+    original_generated_video_path = generated_video_path
+    if generated_video_path and settings.get("viral_template_enabled", False):
+        try:
+            template_source_path = vertical_video_path or generated_video_path
+            abs_template_source = resolve_local_video_path(template_source_path)
+            template_filename = f"{video_job_id}_viral_template.mp4"
+            abs_template_output = os.path.join(GENERATED_DIR, template_filename)
+            template_title = top_trend.get("title", "AI Trend Recreation")
+            template_subtitle = "Recreated and packaged by 6Frame Studio"
+            logger.info(f"Autopilot: Applying viral template '{settings.get('viral_template_style', 'hook_burst')}'...")
+            await loop.run_in_executor(
+                None,
+                lambda: render_template_video(
+                    source_video_path=abs_template_source,
+                    output_path=abs_template_output,
+                    template_id=settings.get("viral_template_style", "hook_burst"),
+                    title=template_title,
+                    subtitle=template_subtitle,
+                    work_root=os.path.join(UPLOAD_DIR, "template_renders"),
+                    quality=settings.get("viral_template_quality", "standard"),
+                )
+            )
+            templated_path = f"/static/assets/generated/{template_filename}"
+            generated_video_path = templated_path
+            vertical_video_path = templated_path
+            logger.info(f"Autopilot: Viral template render complete: {templated_path}")
+        except Exception as e:
+            logger.error(f"Autopilot: Viral template render failed; falling back to generated video: {e}")
 
     now = datetime.now()
     log_post = {
@@ -1376,6 +2319,8 @@ async def execute_autonomous_autopost(settings: dict):
         "campaign_title": f"Autonomous: {top_trend['title']}",
         "video_path": generated_video_path,
         "vertical_video_path": vertical_video_path,
+        "source_video_path": original_generated_video_path,
+        "viral_template_id": settings.get("viral_template_style") if settings.get("viral_template_enabled", False) else None,
         "status": "PUBLISHING",
         "error_message": None,
         "posted_at": None
@@ -1421,6 +2366,28 @@ def fetch_twitter_metrics_for_post(post: dict, settings: dict) -> Optional[dict]
     required_keys = ["twitter_consumer_key", "twitter_consumer_secret", "twitter_access_token", "twitter_access_token_secret"]
     if not all(settings.get(k) for k in required_keys):
         return None
+    bearer_token = fetch_twitter_bearer_token(settings)
+    if bearer_token:
+        try:
+            totals = {"like_count": 0, "retweet_count": 0, "reply_count": 0, "quote_count": 0}
+            res = requests.get(
+                "https://api.twitter.com/2/tweets",
+                headers={"Authorization": f"Bearer {bearer_token}"},
+                params={"ids": ",".join(ids), "tweet.fields": "public_metrics"},
+                timeout=30,
+            )
+            if res.status_code == 200:
+                data = res.json().get("data") or []
+                if data:
+                    for tweet in data:
+                        pm = tweet.get("public_metrics") or {}
+                        for k in totals:
+                            totals[k] += int(pm.get(k, 0) or 0)
+                    return {**totals, "fetched_at": datetime.now().isoformat()}
+            else:
+                logger.warning(f"Twitter bearer metrics fetch failed for {ids}: HTTP {res.status_code} {res.text[:180]}")
+        except Exception as e:
+            logger.warning(f"Twitter bearer metrics fetch failed for post {post.get('id')}: {e}")
     try:
         client = tweepy.Client(
             consumer_key=settings["twitter_consumer_key"],
@@ -1527,7 +2494,7 @@ async def scheduler_loop():
             if last_engagement_refresh is None or (now - last_engagement_refresh).total_seconds() >= ENGAGEMENT_REFRESH_INTERVAL_SECONDS:
                 last_engagement_refresh = now
                 try:
-                    fetch_and_draft_mention_replies(settings)
+                    fetch_all_social_inbox(settings)
                 except Exception as engagement_err:
                     logger.error(f"Error fetching/drafting mention replies: {engagement_err}")
 
@@ -1538,6 +2505,9 @@ async def scheduler_loop():
 
 @app.on_event("startup")
 def startup_event():
+    if os.environ.get("DISABLE_BACKGROUND_SCHEDULER", "").lower() == "true":
+        logger.info("Background scheduler disabled by DISABLE_BACKGROUND_SCHEDULER=true.")
+        return
     asyncio.create_task(scheduler_loop())
 
 @app.post("/api/schedule-post")
@@ -1568,6 +2538,8 @@ def schedule_post(req: SchedulePostRequest):
 @app.get("/api/scheduled-queue")
 def get_scheduled_queue():
     posts = load_scheduled_posts()
+    if reconcile_postproxy_posts(posts, load_settings()):
+        save_scheduled_posts(posts)
     pending = [p for p in posts if p["status"] == "PENDING"]
     completed = [p for p in posts if p["status"] not in ("PENDING", "AWAITING_APPROVAL")]
 
@@ -1637,10 +2609,12 @@ async def approve_post(post_id: str):
     target["status"] = "PUBLISHING"
     save_scheduled_posts(posts)
 
-    result = await publish_post_to_platforms(target, settings)
+    result = await publish_post_to_platforms(target, settings, bypass_daily_limit=True)
     posts = load_scheduled_posts()
     for p in posts:
         if p["id"] == post_id:
+            if target.get("vertical_video_path"):
+                p["vertical_video_path"] = target["vertical_video_path"]
             apply_publish_result_to_post(p, result)
             break
     save_scheduled_posts(posts)
@@ -1675,9 +2649,16 @@ def get_analytics_summary():
         if post.get("status") != "SUCCESS":
             continue
         tw_metrics = (post.get("metrics") or {}).get("twitter")
-        if not tw_metrics:
+        published_platforms = postproxy_published_platforms(post)
+        if not tw_metrics and not published_platforms:
             continue
-        score = compute_engagement_score(tw_metrics)
+        metrics_source = "twitter_public_metrics" if tw_metrics else "postproxy_publish_status"
+        metrics = tw_metrics or {
+            "published_platform_count": len(published_platforms),
+            "published_platforms": [item.get("platform") for item in published_platforms if item.get("platform")],
+            "engagement_unavailable": True,
+        }
+        score = compute_engagement_score(tw_metrics) if tw_metrics else 0
         posted_at = post.get("posted_at") or post.get("scheduled_time")
         hour = None
         try:
@@ -1690,7 +2671,8 @@ def get_analytics_summary():
             "campaign_title": post.get("campaign_title"),
             "platform": post.get("platform"),
             "posted_at": posted_at,
-            "metrics": tw_metrics,
+            "metrics": metrics,
+            "metrics_source": metrics_source,
             "engagement_score": score,
             "hour": hour
         })
@@ -1704,10 +2686,14 @@ def get_analytics_summary():
         best_hour = max(hour_breakdown, key=hour_breakdown.get)
 
     scored.sort(key=lambda x: x["engagement_score"], reverse=True)
+    sample_size = len(scored)
+    confidence = "high" if sample_size >= 20 else ("medium" if sample_size >= 8 else ("low" if sample_size > 0 else "none"))
     return {
         "posts": scored,
         "best_hour": best_hour,
-        "sample_size": len(scored),
+        "sample_size": sample_size,
+        "minimum_recommended_sample_size": 8,
+        "confidence": confidence,
         "hour_breakdown": hour_breakdown
     }
 
@@ -1726,6 +2712,1458 @@ def apply_best_hour(req: ApplyBestHourRequest):
     settings["autonomous_hour"] = req.hour
     save_settings(settings)
     return {"status": "SUCCESS", "message": f"Autopilot posting hour set to {req.hour}:00."}
+
+# ==========================================================================
+# GROWTH OS — expanded social automation command center modules.
+# Stores are JSON-backed so the product can be used immediately without a
+# database migration; external integrations are connector-ready via webhooks.
+# ==========================================================================
+
+GROWTH_OS_FILE = os.path.join(STATE_DIR, "growth_os.json")
+
+DEFAULT_BRAND_KIT = {
+    "workspace_id": "default",
+    "colors": ["#a855f7", "#ec4899", "#0a0a0c", "#f8fafc"],
+    "fonts": ["Inter", "Outfit"],
+    "logo_url": "",
+    "tone_presets": [
+        "premium cinematic",
+        "AI-native filmmaking",
+        "clear technical authority",
+        "creator-first social copy",
+    ],
+    "template_rules": {
+        "default_template": "hook_burst",
+        "high_urgency": "trend_radar",
+        "case_study": "documentary_interview",
+        "transformation": "then_vs_now",
+        "brand_colors_enabled": True,
+        "auto_apply_to_generated_videos": True,
+    },
+}
+
+def default_growth_os_state() -> dict:
+    now = datetime.now().isoformat()
+    return {
+        "workspaces": [
+            {"id": "default", "name": "6Frame Studio", "role": "owner", "created_at": now}
+        ],
+        "brand_kit": DEFAULT_BRAND_KIT.copy(),
+        "listening_topics": [
+            {"id": "topic-ai-video", "keyword": "AI video marketing", "status": "active", "created_at": now},
+            {"id": "topic-generative-video", "keyword": "generative video ads", "status": "active", "created_at": now},
+            {"id": "topic-viral-ai-video", "keyword": "viral AI video", "status": "active", "created_at": now},
+            {"id": "topic-sora-veo-runway", "keyword": "Sora Veo Runway Kling AI video", "status": "active", "created_at": now},
+        ],
+        "listening_signals": [],
+        "competitors": [
+            {"id": "competitor-opusclip", "name": "OpusClip", "handle": "OpusClip", "platform": "multi", "created_at": now},
+            {"id": "competitor-captions", "name": "Captions", "handle": "CaptionsApp", "platform": "multi", "created_at": now},
+            {"id": "competitor-runway", "name": "Runway", "handle": "runwayml", "platform": "multi", "created_at": now},
+            {"id": "competitor-canva", "name": "Canva", "handle": "canva", "platform": "multi", "created_at": now},
+        ],
+        "evergreen_buckets": [],
+        "campaign_plan": [],
+        "ab_tests": [],
+        "crm_contacts": [],
+        "link_in_bio": {
+            "slug": "6frame",
+            "headline": "6Frame Studio",
+            "links": [],
+            "featured_video": ""
+        },
+        "utm_campaigns": [],
+        "automation_rules": [],
+        "automation_events": [],
+        "integrations": [],
+        "report_history": [],
+        "last_trend_scan": [],
+        "last_trend_scan_at": None,
+        "last_automation_generation": {}
+    }
+
+def normalize_growth_os_state(state: dict) -> dict:
+    brand = state.get("brand_kit") if isinstance(state.get("brand_kit"), dict) else {}
+    merged_brand = DEFAULT_BRAND_KIT.copy()
+    merged_brand.update({k: v for k, v in brand.items() if v not in (None, "", [], {})})
+    template_rules = DEFAULT_BRAND_KIT["template_rules"].copy()
+    template_rules.update(brand.get("template_rules") or {})
+    merged_brand["template_rules"] = template_rules
+    state["brand_kit"] = merged_brand
+
+    if not state.get("evergreen_buckets"):
+        state["evergreen_buckets"] = [{
+            "id": "evergreen-cinematic-winners",
+            "name": "Cinematic Winners",
+            "cadence": "monthly",
+            "recycle_days": 30,
+            "items": [],
+            "created_at": datetime.now().isoformat(),
+        }]
+    return state
+
+def load_growth_os() -> dict:
+    state = default_growth_os_state()
+    stored = read_json_file(GROWTH_OS_FILE, {})
+    for key, value in stored.items():
+        state[key] = value
+    defaults = default_growth_os_state()
+    if not state.get("listening_topics"):
+        state["listening_topics"] = defaults["listening_topics"]
+    if not state.get("competitors"):
+        state["competitors"] = defaults["competitors"]
+    return normalize_growth_os_state(state)
+
+def save_growth_os(state: dict):
+    try:
+        write_json_file(GROWTH_OS_FILE, state)
+    except Exception as e:
+        logger.error(f"Error saving Growth OS file: {e}")
+
+def connected(settings: dict, keys: List[str]) -> bool:
+    return all(bool(settings.get(k)) for k in keys)
+
+def setting_or_env(settings: dict, key: str) -> Any:
+    return settings.get(key) or os.environ.get(key.upper())
+
+def build_live_integration_status(settings: dict, state: dict) -> List[dict]:
+    specs = [
+        ("twitter", "Twitter / X", ["twitter_consumer_key", "twitter_consumer_secret", "twitter_access_token", "twitter_access_token_secret"], "publishing, mentions, metrics"),
+        ("linkedin", "LinkedIn", ["linkedin_access_token", "linkedin_person_urn"], "publishing"),
+        ("instagram", "Instagram", ["instagram_access_token", "instagram_business_account_id"], "publishing, hashtag scan, comments when Graph permissions allow"),
+        ("facebook", "Facebook", ["facebook_page_access_token", "facebook_page_id"], "publishing, page comments when Graph permissions allow"),
+        ("tiktok", "TikTok", ["tiktok_client_key", "tiktok_client_secret", "tiktok_refresh_token"], "publishing"),
+        ("youtube", "YouTube", ["youtube_client_id", "youtube_client_secret", "youtube_refresh_token"], "publishing, comments when OAuth scope allows"),
+        ("threads", "Threads", ["threads_access_token", "threads_user_id"], "publishing"),
+        ("postproxy", "PostProxy", ["postproxy_api_key"], "unified OAuth, publishing, comments, DMs, analytics"),
+        ("fal", "FAL", ["fal_api_key"], "video generation"),
+        ("gemini", "Gemini", ["gemini_api_key"], "planning, scanning, copy, grounded research"),
+        ("runway", "Runway", ["runway_api_key"], "video generation"),
+    ]
+    custom = {item.get("id"): item for item in state.get("integrations", []) if item.get("id")}
+    rows = []
+    for key, name, required, capability in specs:
+        rows.append({
+            "id": key,
+            "name": name,
+            "status": "credentials_present" if all(bool(setting_or_env(settings, item)) for item in required) else "needs_credentials",
+            "capability": capability,
+            "webhook_url": custom.get(key, {}).get("webhook_url", ""),
+            "last_checked": datetime.now().isoformat()
+        })
+    for item in state.get("integrations", []):
+        if item.get("id") not in {row["id"] for row in rows}:
+            rows.append(item)
+    return rows
+
+@app.get("/api/provider-diagnostics")
+def provider_diagnostics():
+    settings = load_settings()
+    diagnostics = {
+        "report_email": {
+            "status": "needs_configuration",
+            "message": "Missing report recipient or SMTP host.",
+            "configured": False,
+        },
+        "twitter_mentions": {
+            "status": "not_checked",
+            "message": "",
+            "configured": connected(settings, ["twitter_consumer_key", "twitter_consumer_secret", "twitter_access_token"]),
+        },
+        "youtube_comments": {
+            "status": "not_checked",
+            "message": "",
+            "configured": connected(settings, ["youtube_client_id", "youtube_client_secret", "youtube_refresh_token"]),
+        },
+        "postproxy": {
+            "status": "not_checked",
+            "message": "",
+            "configured": bool(settings.get("postproxy_api_key") or os.environ.get("POSTPROXY_API_KEY")),
+        },
+    }
+
+    email_cfg = report_email_config(settings)
+    if email_cfg["provider"] == "resend":
+        email_ready = bool(email_cfg["to_addr"] and email_cfg["resend_api_key"] and email_cfg["resend_from"])
+        email_message = "Resend report email is configured." if email_ready else "Add Report Recipient, Resend API Key, and Resend From Address in Settings."
+    else:
+        email_ready = bool(email_cfg["to_addr"] and email_cfg["host"])
+        email_message = "SMTP report email is configured." if email_ready else "Add Report Email To and SMTP Host in Settings, or set REPORT_EMAIL_TO and SMTP_HOST on Railway."
+    diagnostics["report_email"].update({
+        "configured": email_ready,
+        "status": "ready" if email_ready else "needs_configuration",
+        "message": email_message,
+        "provider": email_cfg["provider"],
+        "source": email_cfg["source"],
+        "has_smtp_auth": bool(email_cfg["user"] and email_cfg["password"]),
+        "has_resend_key": bool(email_cfg["resend_api_key"]),
+    })
+
+    if diagnostics["twitter_mentions"]["configured"]:
+        try:
+            bearer_token = fetch_twitter_bearer_token(settings)
+            access_token = settings.get("twitter_access_token", "")
+            user_id = access_token.split("-")[0] if "-" in access_token else ""
+            if not bearer_token or not user_id:
+                raise ValueError("Could not derive X bearer token or user id.")
+            res = requests.get(
+                f"https://api.twitter.com/2/users/{user_id}/mentions",
+                headers={"Authorization": f"Bearer {bearer_token}"},
+                params={"max_results": 5, "tweet.fields": "created_at,author_id"},
+                timeout=30,
+            )
+            if res.status_code == 200:
+                payload = res.json()
+                diagnostics["twitter_mentions"].update({
+                    "status": "ready",
+                    "message": "X mentions endpoint is accessible.",
+                    "http_status": res.status_code,
+                    "sample_count": len(payload.get("data") or []),
+                })
+            else:
+                diagnostics["twitter_mentions"].update({
+                    "status": "blocked",
+                    "message": f"X mentions endpoint returned HTTP {res.status_code}.",
+                    "http_status": res.status_code,
+                })
+        except Exception as e:
+            diagnostics["twitter_mentions"].update({"status": "blocked", "message": str(e)})
+    else:
+        diagnostics["twitter_mentions"].update({"status": "needs_credentials", "message": "Missing X/Twitter credentials."})
+
+    if diagnostics["youtube_comments"]["configured"]:
+        try:
+            token = youtube_access_token(settings)
+            if not token:
+                raise ValueError("Could not refresh YouTube access token.")
+            scope_res = requests.get("https://oauth2.googleapis.com/tokeninfo", params={"access_token": token}, timeout=30)
+            scopes = set()
+            if scope_res.status_code == 200:
+                scopes = set((scope_res.json().get("scope") or "").split())
+            channel_res = requests.get(
+                "https://www.googleapis.com/youtube/v3/channels",
+                params={"part": "id,snippet", "mine": "true"},
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=30,
+            )
+            channel_res.raise_for_status()
+            channels = channel_res.json().get("items") or []
+            channel_id = channels[0].get("id") if channels else ""
+            comments_res = requests.get(
+                "https://www.googleapis.com/youtube/v3/commentThreads",
+                params={"part": "snippet", "allThreadsRelatedToChannelId": channel_id, "maxResults": 5, "textFormat": "plainText"},
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=30,
+            )
+            if comments_res.status_code == 200:
+                diagnostics["youtube_comments"].update({
+                    "status": "ready",
+                    "message": "YouTube commentThreads endpoint is accessible.",
+                    "http_status": comments_res.status_code,
+                    "channel_title": ((channels[0].get("snippet") or {}).get("title") if channels else ""),
+                    "sample_count": len(comments_res.json().get("items") or []),
+                    "has_force_ssl_scope": "https://www.googleapis.com/auth/youtube.force-ssl" in scopes,
+                    "has_readonly_scope": "https://www.googleapis.com/auth/youtube.readonly" in scopes,
+                })
+            else:
+                diagnostics["youtube_comments"].update({
+                    "status": "blocked",
+                    "message": f"YouTube comments endpoint returned HTTP {comments_res.status_code}.",
+                    "http_status": comments_res.status_code,
+                })
+        except Exception as e:
+            diagnostics["youtube_comments"].update({"status": "blocked", "message": str(e)})
+    else:
+        diagnostics["youtube_comments"].update({"status": "needs_credentials", "message": "Missing YouTube OAuth credentials."})
+
+    if diagnostics["postproxy"]["configured"]:
+        try:
+            groups = postproxy_profile_groups(settings)
+            profiles = postproxy_profiles(settings)
+            diagnostics["postproxy"].update({
+                "status": "ready",
+                "message": "PostProxy API is accessible.",
+                "profile_group_id": settings.get("postproxy_profile_group_id") or (groups[0]["id"] if groups else ""),
+                "groups_count": len(groups),
+                "profiles_count": len(profiles),
+                "platforms": sorted({p.get("platform") for p in profiles if p.get("platform")}),
+                "enabled": bool(settings.get("postproxy_enabled")),
+            })
+        except Exception as e:
+            diagnostics["postproxy"].update({"status": "blocked", "message": str(e)})
+    else:
+        diagnostics["postproxy"].update({"status": "needs_credentials", "message": "Add PostProxy API Key in Settings."})
+
+    return {"status": "SUCCESS", "diagnostics": diagnostics, "checked_at": datetime.now().isoformat()}
+
+def merge_queue_item(item: dict):
+    queue = load_engagement_queue()
+    source_key = item.get("source_id") or item.get("source_tweet_id") or item.get("source_comment_id")
+    if source_key and any((q.get("source_id") or q.get("source_tweet_id") or q.get("source_comment_id")) == source_key for q in queue):
+        return False
+    item.setdefault("id", str(uuid.uuid4()))
+    item.setdefault("status", "PENDING_REVIEW")
+    item.setdefault("created_at", datetime.now().isoformat())
+    queue.append(item)
+    save_engagement_queue(queue)
+    return True
+
+def fetch_instagram_comments(settings: dict) -> int:
+    if not connected(settings, ["instagram_access_token", "instagram_business_account_id"]):
+        return 0
+    token = settings["instagram_access_token"]
+    ig_id = settings["instagram_business_account_id"]
+    count = 0
+    try:
+        res = requests.get(
+            f"https://graph.facebook.com/v21.0/{ig_id}/media",
+            params={
+                "fields": "id,caption,permalink,timestamp,comments.limit(20){id,text,username,timestamp}",
+                "limit": 10,
+                "access_token": token
+            },
+            timeout=30
+        )
+        if res.status_code != 200:
+            logger.warning(f"Instagram comments fetch failed: {res.text}")
+            return 0
+        for media in res.json().get("data", []):
+            for comment in (media.get("comments") or {}).get("data", []):
+                text = comment.get("text") or ""
+                username = comment.get("username") or "instagram_user"
+                try:
+                    reply = draft_engagement_reply(text, username, settings)
+                except Exception:
+                    reply = ""
+                if merge_queue_item({
+                    "platform": "instagram",
+                    "source_id": f"instagram:{comment.get('id')}",
+                    "source_comment_id": comment.get("id"),
+                    "source_author": username,
+                    "source_text": text,
+                    "source_url": media.get("permalink", ""),
+                    "drafted_reply": reply,
+                    "reply_capability": "instagram_comment_reply"
+                }):
+                    count += 1
+    except Exception as e:
+        logger.warning(f"Failed to fetch Instagram comments: {e}")
+    return count
+
+def fetch_facebook_comments(settings: dict) -> int:
+    if not connected(settings, ["facebook_page_access_token", "facebook_page_id"]):
+        return 0
+    token = settings["facebook_page_access_token"]
+    page_id = settings["facebook_page_id"]
+    count = 0
+    try:
+        res = requests.get(
+            f"https://graph.facebook.com/v21.0/{page_id}/posts",
+            params={
+                "fields": "id,message,permalink_url,created_time,comments.limit(20){id,message,from,created_time}",
+                "limit": 10,
+                "access_token": token
+            },
+            timeout=30
+        )
+        if res.status_code != 200:
+            logger.warning(f"Facebook comments fetch failed: {res.text}")
+            return 0
+        for post in res.json().get("data", []):
+            for comment in (post.get("comments") or {}).get("data", []):
+                text = comment.get("message") or ""
+                author = (comment.get("from") or {}).get("name") or "facebook_user"
+                try:
+                    reply = draft_engagement_reply(text, author, settings)
+                except Exception:
+                    reply = ""
+                if merge_queue_item({
+                    "platform": "facebook",
+                    "source_id": f"facebook:{comment.get('id')}",
+                    "source_comment_id": comment.get("id"),
+                    "source_author": author,
+                    "source_text": text,
+                    "source_url": post.get("permalink_url", ""),
+                    "drafted_reply": reply,
+                    "reply_capability": "facebook_comment_reply"
+                }):
+                    count += 1
+    except Exception as e:
+        logger.warning(f"Failed to fetch Facebook comments: {e}")
+    return count
+
+def youtube_access_token(settings: dict) -> Optional[str]:
+    try:
+        return get_youtube_access_token(settings)
+    except Exception as e:
+        logger.warning(f"Failed to refresh YouTube token: {e}")
+        return None
+
+def fetch_youtube_comments(settings: dict) -> int:
+    if not connected(settings, ["youtube_client_id", "youtube_client_secret", "youtube_refresh_token"]):
+        return 0
+    token = youtube_access_token(settings)
+    if not token:
+        return 0
+    headers = {"Authorization": f"Bearer {token}"}
+    count = 0
+    try:
+        channel_res = requests.get(
+            "https://www.googleapis.com/youtube/v3/channels",
+            params={"part": "id", "mine": "true"},
+            headers=headers,
+            timeout=30
+        )
+        if channel_res.status_code != 200:
+            logger.warning(f"YouTube channel fetch failed: {channel_res.text}")
+            return 0
+        items = channel_res.json().get("items", [])
+        if not items:
+            return 0
+        channel_id = items[0]["id"]
+        comments_res = requests.get(
+            "https://www.googleapis.com/youtube/v3/commentThreads",
+            params={"part": "snippet", "allThreadsRelatedToChannelId": channel_id, "maxResults": 20, "order": "time"},
+            headers=headers,
+            timeout=30
+        )
+        if comments_res.status_code != 200:
+            logger.warning(f"YouTube comments fetch failed: {comments_res.text}")
+            return 0
+        for thread in comments_res.json().get("items", []):
+            top = thread.get("snippet", {}).get("topLevelComment", {})
+            snippet = top.get("snippet", {})
+            text = snippet.get("textDisplay") or snippet.get("textOriginal") or ""
+            author = snippet.get("authorDisplayName") or "youtube_user"
+            try:
+                reply = draft_engagement_reply(text, author, settings)
+            except Exception:
+                reply = ""
+            if merge_queue_item({
+                "platform": "youtube",
+                "source_id": f"youtube:{top.get('id')}",
+                "source_comment_id": top.get("id"),
+                "source_author": author,
+                "source_text": text,
+                "source_url": f"https://www.youtube.com/watch?v={snippet.get('videoId', '')}",
+                "drafted_reply": reply,
+                "reply_capability": "youtube_comment_reply"
+            }):
+                count += 1
+    except Exception as e:
+        logger.warning(f"Failed to fetch YouTube comments: {e}")
+    return count
+
+def fetch_all_social_inbox(settings: dict) -> dict:
+    before = len(load_engagement_queue())
+    fetch_and_draft_mention_replies(settings)
+    counts = {
+        "instagram": fetch_instagram_comments(settings),
+        "facebook": fetch_facebook_comments(settings),
+        "youtube": fetch_youtube_comments(settings),
+    }
+    after = len(load_engagement_queue())
+    counts["total_new"] = max(0, after - before)
+    return counts
+
+def extract_json_object(text: str) -> Any:
+    cleaned = (text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+    start_candidates = [idx for idx in (cleaned.find("{"), cleaned.find("[")) if idx >= 0]
+    if not start_candidates:
+        raise ValueError("No JSON object found in model response.")
+    start = min(start_candidates)
+    end = max(cleaned.rfind("}"), cleaned.rfind("]"))
+    if end <= start:
+        raise ValueError("Incomplete JSON object in model response.")
+    return json.loads(cleaned[start:end + 1])
+
+def call_gemini_json(settings: dict, prompt: str, fallback: Any, use_search: bool = True) -> Any:
+    api_key = settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("Missing Gemini API key.")
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=180000))
+    config_kwargs = {}
+    if use_search:
+        config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+        prompt = f"{prompt}\n\nReturn only valid JSON. Do not wrap it in Markdown."
+    else:
+        config_kwargs["response_mime_type"] = "application/json"
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(**config_kwargs)
+    )
+    try:
+        return extract_json_object(response.text)
+    except Exception as e:
+        logger.warning(f"Failed to parse Gemini JSON: {e}; text={response.text[:500]}")
+        return fallback
+
+def refresh_live_listening_and_competitors(state: dict, settings: dict) -> dict:
+    topics = [t for t in state.get("listening_topics", []) if t.get("keyword")]
+    competitors = [c for c in state.get("competitors", []) if c.get("name") or c.get("handle")]
+    changed = {"listening_signals": 0, "competitors": 0}
+    if topics:
+        topic_text = ", ".join(t.get("keyword", "") for t in topics[:12])
+        prompt = f"""
+        Search the live web and social web for current public social media signals about: {topic_text}.
+        Return JSON only in this shape:
+        {{"signals":[{{"topic":"...","platform":"...","url":"...","author":"...","summary":"...","metric":"...","detected_at":"..."}}]}}
+        Use real public URLs only. If a URL cannot be verified, omit that item.
+        """
+        data = call_gemini_json(settings, prompt, {"signals": []})
+        signals = data.get("signals", []) if isinstance(data, dict) else []
+        for signal in signals:
+            signal.setdefault("id", str(uuid.uuid4()))
+            signal.setdefault("detected_at", datetime.now().isoformat())
+        state["listening_signals"] = signals[:40]
+        changed["listening_signals"] = len(state["listening_signals"])
+    if competitors:
+        comp_text = ", ".join((c.get("handle") or c.get("name") or "") for c in competitors[:12])
+        prompt = f"""
+        Search live public social platforms for competitor posting intelligence about: {comp_text}.
+        Return JSON only in this shape:
+        {{"competitors":[{{"name":"...","handle":"...","platform":"...","posting_frequency":"...","top_post_url":"...","top_post_summary":"...","engagement_velocity":"...","format_patterns":["..."],"last_checked":"..."}}]}}
+        Use real URLs and real observations only.
+        """
+        data = call_gemini_json(settings, prompt, {"competitors": []})
+        refreshed = data.get("competitors", []) if isinstance(data, dict) else []
+        if refreshed:
+            for row in refreshed:
+                row.setdefault("id", str(uuid.uuid4()))
+                row.setdefault("last_checked", datetime.now().isoformat())
+            state["competitors"] = refreshed[:40]
+            changed["competitors"] = len(state["competitors"])
+    return changed
+
+def list_generated_assets() -> List[dict]:
+    assets = []
+    if not os.path.isdir(GENERATED_DIR):
+        return assets
+    for name in sorted(os.listdir(GENERATED_DIR), reverse=True):
+        if not name.lower().endswith((".mp4", ".png", ".jpg", ".jpeg", ".webp")):
+            continue
+        path = os.path.join(GENERATED_DIR, name)
+        try:
+            stat = os.stat(path)
+        except OSError:
+            continue
+        kind = "video" if name.lower().endswith(".mp4") else "image"
+        assets.append({
+            "id": name,
+            "name": name,
+            "type": kind,
+            "url": f"/static/assets/generated/{name}",
+            "size": stat.st_size,
+            "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+            "tags": ["generated", kind]
+        })
+    return assets[:80]
+
+def build_calendar_items() -> List[dict]:
+    items = []
+    for post in load_scheduled_posts():
+        items.append({
+            "id": post.get("id"),
+            "title": post.get("campaign_title") or "Untitled post",
+            "platform": post.get("platform"),
+            "scheduled_time": post.get("scheduled_time"),
+            "status": post.get("status"),
+            "video_path": post.get("video_path") or post.get("vertical_video_path"),
+            "approval_status": "awaiting" if post.get("status") == "AWAITING_APPROVAL" else "none"
+        })
+    return sorted(items, key=lambda x: x.get("scheduled_time") or "", reverse=True)
+
+def build_auto_report() -> dict:
+    analytics = get_analytics_summary()
+    posts = load_scheduled_posts()
+    pending = len([p for p in posts if p.get("status") == "PENDING"])
+    awaiting = len([p for p in posts if p.get("status") == "AWAITING_APPROVAL"])
+    failed = len([p for p in posts if p.get("status") == "FAILED"])
+    success = len([p for p in posts if p.get("status") == "SUCCESS"])
+    top_posts = analytics.get("posts", [])[:5]
+    return {
+        "id": str(uuid.uuid4()),
+        "created_at": datetime.now().isoformat(),
+        "summary": {
+            "scheduled": pending,
+            "awaiting_approval": awaiting,
+            "published": success,
+            "failed": failed,
+            "best_hour": analytics.get("best_hour"),
+            "sample_size": analytics.get("sample_size", 0)
+        },
+        "top_posts": top_posts,
+        "recommendations": [
+            "Turn high-performing trend scans into multi-scene campaigns.",
+            "Recycle top evergreen posts every 30-45 days.",
+            "Use Hook Burst or Trend Radar templates on posts with strong metrics.",
+            "Route high-intent comments into the CRM follow-up queue."
+        ]
+    }
+
+def write_growth_report_files(report: dict) -> dict:
+    report_id = report["id"]
+    pdf_path = os.path.join(REPORTS_DIR, f"{report_id}.pdf")
+    html_path = os.path.join(REPORTS_DIR, f"{report_id}.html")
+    summary = report.get("summary", {})
+
+    html_body = f"""<!doctype html><html><head><meta charset="utf-8"><title>6Frame Growth Report</title>
+    <style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0c;color:#f8fafc;padding:40px;line-height:1.5}}.card{{border:1px solid #333;padding:20px;border-radius:10px;margin:14px 0;background:#111116}}a{{color:#7dd3fc}}</style></head>
+    <body><h1>6Frame Growth Report</h1><p>{html.escape(report.get('created_at',''))}</p>
+    <div class="card"><h2>Summary</h2><p>Scheduled: {summary.get('scheduled',0)} | Awaiting approval: {summary.get('awaiting_approval',0)} | Published: {summary.get('published',0)} | Failed: {summary.get('failed',0)} | Best hour: {summary.get('best_hour') if summary.get('best_hour') is not None else 'N/A'} | Analytics sample: {summary.get('sample_size',0)}</p></div>
+    <div class="card"><h2>Recommendations</h2><ul>{''.join(f'<li>{html.escape(str(r))}</li>' for r in report.get('recommendations', []))}</ul></div>
+    <div class="card"><h2>Top Posts</h2>{''.join(f'<p><strong>{html.escape(str(p.get("campaign_title","Post")))}</strong><br>Score: {html.escape(str(p.get("engagement_score","")))} | Platform: {html.escape(str(p.get("platform","")))}</p>' for p in report.get('top_posts', [])) or '<p>No scored posts yet.</p>'}</div>
+    </body></html>"""
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_body)
+
+    pdf_lines = [
+        "6Frame Growth Report",
+        report.get("created_at", ""),
+        "",
+        f"Scheduled: {summary.get('scheduled', 0)}",
+        f"Awaiting approval: {summary.get('awaiting_approval', 0)}",
+        f"Published: {summary.get('published', 0)}",
+        f"Failed: {summary.get('failed', 0)}",
+        f"Best hour: {summary.get('best_hour') if summary.get('best_hour') is not None else 'N/A'}",
+        f"Analytics sample: {summary.get('sample_size', 0)}",
+        "",
+        "Recommendations:",
+        *[f"- {rec}" for rec in report.get("recommendations", [])],
+        "",
+        "Top Posts:",
+    ]
+    if report.get("top_posts"):
+        pdf_lines.extend([f"- {p.get('campaign_title', 'Post')} | score {p.get('engagement_score', '')}" for p in report["top_posts"]])
+    else:
+        pdf_lines.append("- No scored posts yet.")
+    write_simple_pdf(pdf_path, pdf_lines)
+    return {
+        "pdf_path": f"/reports/{os.path.basename(pdf_path)}",
+        "html_path": f"/reports/{os.path.basename(html_path)}",
+    }
+
+def write_simple_pdf(path: str, lines: List[str]):
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+
+        doc = SimpleDocTemplate(
+            path,
+            pagesize=letter,
+            rightMargin=0.65 * inch,
+            leftMargin=0.65 * inch,
+            topMargin=0.65 * inch,
+            bottomMargin=0.65 * inch,
+        )
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(
+            name="ReportTitle",
+            parent=styles["Title"],
+            textColor=colors.HexColor("#111827"),
+            fontSize=22,
+            leading=26,
+            spaceAfter=14,
+        ))
+        styles.add(ParagraphStyle(
+            name="ReportBody",
+            parent=styles["BodyText"],
+            fontSize=10,
+            leading=14,
+            textColor=colors.HexColor("#1f2937"),
+        ))
+        story = [Paragraph(html.escape(lines[0] if lines else "6Frame Growth Report"), styles["ReportTitle"])]
+        if len(lines) > 1:
+            story.append(Paragraph(html.escape(lines[1]), styles["ReportBody"]))
+            story.append(Spacer(1, 0.2 * inch))
+        summary_rows = []
+        rec_lines = []
+        top_lines = []
+        section = "summary"
+        for line in lines[2:]:
+            if line == "Recommendations:":
+                section = "recommendations"
+                continue
+            if line == "Top Posts:":
+                section = "top"
+                continue
+            if not line:
+                continue
+            if section == "summary" and ":" in line:
+                key, value = line.split(":", 1)
+                summary_rows.append([Paragraph(f"<b>{html.escape(key)}</b>", styles["ReportBody"]), Paragraph(html.escape(value.strip()), styles["ReportBody"])])
+            elif section == "recommendations":
+                rec_lines.append(line.lstrip("- "))
+            else:
+                top_lines.append(line.lstrip("- "))
+        if summary_rows:
+            story.append(Table(summary_rows, colWidths=[2.0 * inch, 4.0 * inch], style=[
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d1d5db")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("PADDING", (0, 0), (-1, -1), 7),
+            ]))
+            story.append(Spacer(1, 0.25 * inch))
+        if rec_lines:
+            story.append(Paragraph("Recommendations", styles["Heading2"]))
+            for rec in rec_lines:
+                story.append(Paragraph(f"- {html.escape(rec)}", styles["ReportBody"]))
+            story.append(Spacer(1, 0.18 * inch))
+        if top_lines:
+            story.append(Paragraph("Top Posts", styles["Heading2"]))
+            for top in top_lines:
+                story.append(Paragraph(f"- {html.escape(top)}", styles["ReportBody"]))
+        doc.build(story)
+        return
+    except Exception as e:
+        logger.warning(f"ReportLab PDF generation failed, falling back to simple PDF: {e}")
+
+    def esc(text: str) -> str:
+        return str(text).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    content_lines = ["BT", "/F1 13 Tf", "50 750 Td", "16 TL"]
+    for idx, line in enumerate(lines[:42]):
+        if idx:
+            content_lines.append("T*")
+        content_lines.append(f"({esc(line)}) Tj")
+    content_lines.append("ET")
+    stream = "\n".join(content_lines).encode("latin-1", "replace")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
+    ]
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for i, obj in enumerate(objects, 1):
+        offsets.append(len(pdf))
+        pdf.extend(f"{i} 0 obj\n".encode())
+        pdf.extend(obj)
+        pdf.extend(b"\nendobj\n")
+    xref = len(pdf)
+    pdf.extend(f"xref\n0 {len(objects)+1}\n0000000000 65535 f \n".encode())
+    for offset in offsets:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode())
+    pdf.extend(f"trailer << /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode())
+    with open(path, "wb") as f:
+        f.write(pdf)
+
+def report_email_config(settings: Optional[dict] = None) -> dict:
+    settings = settings or load_settings()
+    return {
+        "provider": (os.environ.get("REPORT_EMAIL_PROVIDER") or settings.get("report_email_provider", "smtp") or "smtp").lower(),
+        "to_addr": os.environ.get("REPORT_EMAIL_TO") or settings.get("report_email_to", ""),
+        "resend_api_key": os.environ.get("RESEND_API_KEY") or settings.get("resend_api_key", ""),
+        "resend_from": os.environ.get("RESEND_FROM") or settings.get("resend_from", ""),
+        "host": os.environ.get("SMTP_HOST") or settings.get("smtp_host", ""),
+        "port": int(os.environ.get("SMTP_PORT") or settings.get("smtp_port") or 587),
+        "user": os.environ.get("SMTP_USER") or settings.get("smtp_user", ""),
+        "password": os.environ.get("SMTP_PASSWORD") or settings.get("smtp_password", ""),
+        "from_addr": os.environ.get("SMTP_FROM") or settings.get("smtp_from", ""),
+        "tls": (str(os.environ.get("SMTP_TLS", settings.get("smtp_tls", True))).lower() != "false"),
+        "source": "env" if os.environ.get("REPORT_EMAIL_TO") or os.environ.get("SMTP_HOST") else "settings",
+    }
+
+def send_growth_report_with_resend(report: dict, files: dict, cfg: dict) -> str:
+    api_key = cfg.get("resend_api_key")
+    to_addr = cfg.get("to_addr")
+    from_addr = cfg.get("resend_from") or cfg.get("from_addr")
+    if not api_key or not to_addr or not from_addr:
+        return "not_configured"
+
+    pdf_abs = os.path.join(REPORTS_DIR, os.path.basename(files["pdf_path"]))
+    html_abs = os.path.join(REPORTS_DIR, os.path.basename(files["html_path"]))
+    with open(pdf_abs, "rb") as f:
+        pdf_content = base64.b64encode(f.read()).decode("ascii")
+    with open(html_abs, "r", encoding="utf-8") as f:
+        html_body = f.read()
+
+    payload = {
+        "from": from_addr,
+        "to": [to_addr],
+        "subject": f"6Frame Growth Report {report.get('created_at', '')[:10]}",
+        "html": html_body,
+        "attachments": [
+            {
+                "filename": os.path.basename(pdf_abs),
+                "content": pdf_content,
+            }
+        ],
+        "tags": [{"name": "source", "value": "growth_report"}],
+    }
+    res = requests.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=60,
+    )
+    if res.status_code >= 400:
+        return f"failed: Resend HTTP {res.status_code}: {res.text[:220]}"
+    email_id = (res.json() or {}).get("id", "")
+    return f"sent: resend:{email_id}" if email_id else "sent: resend"
+
+def email_growth_report_if_configured(report: dict, files: dict, settings: Optional[dict] = None) -> str:
+    cfg = report_email_config(settings)
+    if cfg["provider"] == "resend":
+        try:
+            return send_growth_report_with_resend(report, files, cfg)
+        except Exception as e:
+            logger.warning(f"Resend growth report email failed: {e}")
+            return f"failed: Resend {type(e).__name__}: {str(e)[:160]}"
+
+    to_addr = cfg["to_addr"]
+    host = cfg["host"]
+    user = cfg["user"]
+    password = cfg["password"]
+    if not to_addr or not host:
+        return "not_configured"
+    try:
+        import smtplib
+        import socket
+        from email.message import EmailMessage
+        msg = EmailMessage()
+        msg["Subject"] = f"6Frame Growth Report {report.get('created_at', '')[:10]}"
+        msg["From"] = cfg["from_addr"] or user or "reports@6frame.local"
+        msg["To"] = to_addr
+        msg.set_content(
+            f"Your 6Frame Growth Report is ready.\n\nPDF: {files.get('pdf_path')}\nHTML: {files.get('html_path')}\n"
+        )
+        pdf_abs = os.path.join(REPORTS_DIR, os.path.basename(files["pdf_path"]))
+        with open(pdf_abs, "rb") as f:
+            msg.add_attachment(f.read(), maintype="application", subtype="pdf", filename=os.path.basename(pdf_abs))
+        original_getaddrinfo = socket.getaddrinfo
+        addresses = [
+            item for item in original_getaddrinfo(host, cfg["port"], socket.AF_INET, socket.SOCK_STREAM)
+            if item[0] == socket.AF_INET
+        ]
+        if host.lower() in {"smtp.gmail.com", "smtp.googlemail.com"}:
+            for ip in ("142.250.101.108", "142.251.116.108", "64.233.180.108"):
+                fallback = (socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, cfg["port"]))
+                if all(existing[4][0] != ip for existing in addresses):
+                    addresses.append(fallback)
+        if not addresses:
+            raise OSError(f"No IPv4 SMTP addresses resolved for {host}.")
+
+        last_error = None
+        for address in addresses[:4]:
+            def selected_getaddrinfo(*args, **kwargs):
+                return [address]
+            socket.getaddrinfo = selected_getaddrinfo
+            try:
+                logger.info(f"Sending growth report email via {host}:{cfg['port']} using IPv4 {address[4][0]}")
+                if cfg["port"] == 465:
+                    smtp_context = smtplib.SMTP_SSL(host, cfg["port"], timeout=25)
+                else:
+                    smtp_context = smtplib.SMTP(host, cfg["port"], timeout=25)
+                with smtp_context as smtp:
+                    if cfg["tls"] and cfg["port"] != 465:
+                        logger.info("Starting SMTP TLS session for growth report email.")
+                        smtp.starttls()
+                    if user and password:
+                        logger.info("Authenticating SMTP session for growth report email.")
+                        smtp.login(user, password)
+                    logger.info("Sending growth report email message.")
+                    smtp.send_message(msg)
+                last_error = None
+                break
+            except Exception as attempt_error:
+                last_error = attempt_error
+                logger.warning(f"Growth report email SMTP attempt failed via {address[4][0]}: {attempt_error}")
+            finally:
+                socket.getaddrinfo = original_getaddrinfo
+        if last_error:
+            raise last_error
+        return "sent"
+    except Exception as e:
+        logger.warning(f"Growth report email failed: {e}")
+        return f"failed: {type(e).__name__}: {str(e)[:160]}"
+
+def log_automation_event(state: dict, rule: dict, status: str, message: str, result: Optional[dict] = None):
+    event = {
+        "id": str(uuid.uuid4()),
+        "rule_id": rule.get("id"),
+        "trigger": rule.get("trigger"),
+        "action": rule.get("action"),
+        "status": status,
+        "message": message,
+        "result": result or {},
+        "created_at": datetime.now().isoformat(),
+    }
+    state.setdefault("automation_events", []).insert(0, event)
+    state["automation_events"] = state["automation_events"][:100]
+    return event
+
+def post_success_platforms(post: dict) -> List[str]:
+    if post.get("postproxy_result", {}).get("platforms"):
+        return [
+            item.get("platform")
+            for item in post["postproxy_result"]["platforms"]
+            if item.get("status") in ("published", "processing", "processed", "scheduled")
+        ]
+    if post.get("status") == "SUCCESS":
+        return resolve_platform_list(post.get("platform", ""))
+    if post.get("status") == "PARTIAL_SUCCESS" and post.get("error_message"):
+        msg = post.get("error_message", "")
+        if "Success:" in msg:
+            success_part = msg.split("Success:", 1)[1].split("Errors:", 1)[0]
+            return [p.strip().strip(".;:").lower() for p in success_part.split(",") if p.strip()]
+    return []
+
+def seed_ab_test_from_latest_trend(state: dict) -> Optional[dict]:
+    if state.get("ab_tests"):
+        return None
+    trends = state.get("last_trend_scan") or []
+    if not trends:
+        return None
+    trend = trends[0]
+    title = trend.get("title") or "Latest scanned trend"
+    test = {
+        "id": str(uuid.uuid4()),
+        "name": f"Hook test: {title[:72]}",
+        "source_trend_url": trend.get("url"),
+        "metric": "engagement_score",
+        "status": "draft",
+        "variants": [
+            {
+                "id": "hook-a",
+                "label": "Direct cinematic hook",
+                "hook": (trend.get("recreated_twitter_thread") or [title])[0],
+                "template_id": "hook_burst",
+            },
+            {
+                "id": "hook-b",
+                "label": "Trend context hook",
+                "hook": trend.get("studio_adaptation_concept") or trend.get("original_concept") or title,
+                "template_id": "trend_radar",
+            },
+        ],
+        "created_at": datetime.now().isoformat(),
+    }
+    state.setdefault("ab_tests", []).append(test)
+    return test
+
+def run_growth_automation_rules(state: dict, settings: dict) -> List[dict]:
+    events = []
+    rules = [r for r in state.get("automation_rules", []) if r.get("enabled", True)]
+    posts = load_scheduled_posts()
+    inbox = load_engagement_queue()
+    analytics = get_analytics_summary()
+
+    for rule in rules:
+        trigger = (rule.get("trigger") or "").lower()
+        action = (rule.get("action") or "").lower()
+        condition = (rule.get("condition") or "").lower()
+        try:
+            if "new inbox" in trigger or "new mention" in trigger or "comment" in trigger:
+                if "crm" in action:
+                    known = {c.get("handle") for c in state.get("crm_contacts", [])}
+                    added = 0
+                    for item in inbox:
+                        handle = item.get("source_author")
+                        if handle and handle not in known:
+                            state.setdefault("crm_contacts", []).append({
+                                "id": str(uuid.uuid4()),
+                                "name": handle,
+                                "handle": handle,
+                                "platform": item.get("platform", "social"),
+                                "labels": ["engaged"],
+                                "notes": item.get("source_text", "")[:240],
+                                "suggested_followup": item.get("drafted_reply", ""),
+                                "created_at": datetime.now().isoformat(),
+                            })
+                            known.add(handle)
+                            added += 1
+                    events.append(log_automation_event(state, rule, "SUCCESS", f"Synced {added} inbox contacts to CRM.", {"added": added}))
+                    continue
+
+            if "evergreen" in trigger or "recycle" in action:
+                successful = [p for p in posts if post_success_platforms(p) and p.get("text")]
+                added = 0
+                bucket = next((b for b in state.get("evergreen_buckets", []) if b.get("name", "").lower() == "auto recycled winners"), None)
+                if not bucket:
+                    bucket = {"id": str(uuid.uuid4()), "name": "Auto Recycled Winners", "cadence": "monthly", "recycle_days": 30, "items": [], "created_at": datetime.now().isoformat()}
+                    state.setdefault("evergreen_buckets", []).append(bucket)
+                existing = {i.get("post_id") for i in bucket.get("items", [])}
+                for post in successful[:10]:
+                    if post.get("id") not in existing:
+                        bucket.setdefault("items", []).append({
+                            "post_id": post.get("id"),
+                            "title": post.get("campaign_title"),
+                            "text": post.get("text"),
+                            "successful_platforms": post_success_platforms(post),
+                            "source_status": post.get("status"),
+                            "added_at": datetime.now().isoformat(),
+                        })
+                        added += 1
+                events.append(log_automation_event(state, rule, "SUCCESS", f"Added {added} winners to evergreen queue.", {"added": added}))
+                continue
+
+            if "ab" in trigger or "a/b" in trigger or "variant" in action:
+                seeded = seed_ab_test_from_latest_trend(state)
+                scored = analytics.get("posts", [])
+                for test in state.get("ab_tests", []):
+                    if test.get("status") == "draft" and scored:
+                        test["status"] = "analyzed"
+                        test["winner"] = scored[0].get("campaign_title")
+                        test["updated_at"] = datetime.now().isoformat()
+                    elif test.get("status") == "draft":
+                        test["status"] = "collecting_data"
+                        test["updated_at"] = datetime.now().isoformat()
+                events.append(log_automation_event(
+                    state,
+                    rule,
+                    "SUCCESS",
+                    f"Prepared/evaluated {len(state.get('ab_tests', []))} A/B tests.",
+                    {"sample_size": analytics.get("sample_size", 0), "seeded_test_id": seeded.get("id") if seeded else None},
+                ))
+                continue
+
+            if "report" in action:
+                report = build_auto_report()
+                files = write_growth_report_files(report)
+                report.update(files)
+                report["email_status"] = email_growth_report_if_configured(report, files, settings)
+                state.setdefault("report_history", []).insert(0, report)
+                state["report_history"] = state["report_history"][:20]
+                events.append(log_automation_event(state, rule, "SUCCESS", "Generated report from automation rule.", {"report_id": report["id"], **files}))
+                continue
+
+            if "virality" in trigger and "generate" in action:
+                trends = state.get("last_trend_scan") or []
+                if not trends:
+                    scan_job_id = str(uuid.uuid4())
+                    run_live_trend_scanner(scan_job_id, settings)
+                    scan_status = get_job_status(scan_job_id)
+                    if scan_status.get("status") == "SUCCESS":
+                        trends = (scan_status.get("result") or {}).get("trends", [])
+                        state["last_trend_scan"] = trends[:25]
+                        state["last_trend_scan_at"] = datetime.now().isoformat()
+                if not trends:
+                    events.append(log_automation_event(state, rule, "FAILED", "No verified trend scan result was available for virality-triggered generation."))
+                    continue
+                trend = trends[0]
+                trend_key = trend.get("url") or trend.get("title")
+                last_generation = state.get("last_automation_generation") or {}
+                if last_generation.get("trend_key") == trend_key:
+                    events.append(log_automation_event(state, rule, "SUCCESS", "Virality generation already completed for the latest top trend.", last_generation))
+                    continue
+                video_job_id = str(uuid.uuid4())
+                engine = settings.get("autonomous_video_engine", "fal_hailuo_23")
+                duration = int(settings.get("autonomous_video_duration", 10))
+                run_video_generation(
+                    job_id=video_job_id,
+                    prompt=trend.get("recreated_video_prompt") or trend.get("studio_adaptation_concept") or trend.get("title") or "cinematic AI trend recreation",
+                    settings=settings,
+                    engine=engine,
+                    duration=duration,
+                )
+                video_status = get_job_status(video_job_id)
+                if video_status.get("status") != "SUCCESS":
+                    events.append(log_automation_event(state, rule, "FAILED", f"Virality-triggered video generation failed: {video_status.get('message')}"))
+                    continue
+                generation = {
+                    "trend_key": trend_key,
+                    "trend_title": trend.get("title"),
+                    "trend_url": trend.get("url"),
+                    "video_job_id": video_job_id,
+                    "video_path": (video_status.get("result") or {}).get("video_path"),
+                    "engine": engine,
+                    "duration": duration,
+                    "created_at": datetime.now().isoformat(),
+                }
+                state["last_automation_generation"] = generation
+                events.append(log_automation_event(state, rule, "SUCCESS", "Generated a video from the latest persisted viral trend.", generation))
+                continue
+
+            events.append(log_automation_event(state, rule, "FAILED", "This rule does not match an executable trigger/action. Edit it to use inbox->CRM, evergreen recycle, A/B evaluate, report, or virality->generate."))
+        except Exception as e:
+            logger.exception("Growth automation rule failed")
+            events.append(log_automation_event(state, rule, "FAILED", str(e)))
+
+    save_growth_os(state)
+    return events
+
+class GrowthItemRequest(BaseModel):
+    collection: str
+    item: dict
+
+class GrowthUpdateRequest(BaseModel):
+    data: dict
+
+class GrowthCollectionUpdateRequest(BaseModel):
+    item: dict
+
+class CampaignPlanRequest(BaseModel):
+    business_url: Optional[str] = None
+    goals: Optional[str] = None
+    audience: Optional[str] = None
+
+class UtmBuildRequest(BaseModel):
+    base_url: str
+    source: str = "social"
+    medium: str = "organic"
+    campaign: str = "6frame"
+    content: Optional[str] = None
+
+class MultiSceneVideoRequest(BaseModel):
+    prompt: str
+    engine: str = "fal_hailuo_02"
+    scene_count: int = 3
+    scene_duration: int = 6
+    apply_template: bool = True
+    template_id: Optional[str] = None
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+
+@app.get("/api/growth-os")
+def get_growth_os():
+    state = load_growth_os()
+    settings = load_settings()
+    analytics = get_analytics_summary()
+    inbox = get_engagement_queue()
+    state["calendar"] = build_calendar_items()
+    state["assets"] = list_generated_assets()
+    state["reports_preview"] = build_auto_report()
+    state["integrations"] = build_live_integration_status(settings, state)
+    state["best_time"] = {
+        "hour": analytics.get("best_hour"),
+        "sample_size": analytics.get("sample_size", 0),
+        "minimum_recommended_sample_size": analytics.get("minimum_recommended_sample_size", 8),
+        "confidence": analytics.get("confidence", "none"),
+        "hour_breakdown": analytics.get("hour_breakdown", {})
+    }
+    state["unified_inbox"] = inbox
+    state["approval_items"] = get_approval_queue()
+    state["listening_digest"] = {
+        "active_topics": len([t for t in state.get("listening_topics", []) if t.get("status") == "active"]),
+        "competitors_tracked": len(state.get("competitors", [])),
+        "signals": state.get("listening_signals", [])[:10],
+        "last_refresh": state.get("last_live_refresh")
+    }
+    state["automation_events"] = state.get("automation_events", [])[:50]
+    return state
+
+@app.post("/api/growth-os/live-refresh")
+def refresh_growth_os_live(background_tasks: BackgroundTasks):
+    settings = load_settings()
+    def do_refresh():
+        state = load_growth_os()
+        inbox_counts = fetch_all_social_inbox(settings)
+        research_counts = {"listening_signals": 0, "competitors": 0}
+        try:
+            research_counts = refresh_live_listening_and_competitors(state, settings)
+        except Exception as e:
+            logger.warning(f"Live listening/competitor refresh failed: {e}")
+        latest = load_growth_os()
+        latest["listening_signals"] = state.get("listening_signals", latest.get("listening_signals", []))
+        latest["competitors"] = state.get("competitors", latest.get("competitors", []))
+        latest["last_live_refresh"] = datetime.now().isoformat()
+        latest["last_live_refresh_counts"] = {"inbox": inbox_counts, "research": research_counts}
+        run_growth_automation_rules(latest, settings)
+        save_growth_os(latest)
+    background_tasks.add_task(do_refresh)
+    return {"status": "SUCCESS", "message": "Live Growth OS refresh started."}
+
+@app.post("/api/growth-os/item")
+def add_growth_item(req: GrowthItemRequest):
+    allowed = {
+        "workspaces", "listening_topics", "competitors", "evergreen_buckets",
+        "ab_tests", "crm_contacts", "utm_campaigns", "automation_rules", "integrations"
+    }
+    if req.collection not in allowed:
+        raise HTTPException(status_code=400, detail="Unsupported Growth OS collection.")
+    state = load_growth_os()
+    item = req.item.copy()
+    item.setdefault("id", str(uuid.uuid4()))
+    item.setdefault("created_at", datetime.now().isoformat())
+    state.setdefault(req.collection, []).append(item)
+    save_growth_os(state)
+    return {"status": "SUCCESS", "item": item}
+
+@app.patch("/api/growth-os/item/{collection}/{item_id}")
+def update_growth_item(collection: str, item_id: str, req: GrowthCollectionUpdateRequest):
+    allowed = {
+        "workspaces", "listening_topics", "competitors", "evergreen_buckets",
+        "ab_tests", "crm_contacts", "utm_campaigns", "automation_rules", "integrations"
+    }
+    if collection not in allowed:
+        raise HTTPException(status_code=400, detail="Unsupported Growth OS collection.")
+    state = load_growth_os()
+    items = state.get(collection, [])
+    for item in items:
+        if item.get("id") == item_id:
+            item.update(req.item)
+            item["updated_at"] = datetime.now().isoformat()
+            save_growth_os(state)
+            return {"status": "SUCCESS", "item": item}
+    raise HTTPException(status_code=404, detail="Growth OS item not found.")
+
+@app.delete("/api/growth-os/item/{collection}/{item_id}")
+def delete_growth_item(collection: str, item_id: str):
+    allowed = {
+        "workspaces", "listening_topics", "competitors", "evergreen_buckets",
+        "ab_tests", "crm_contacts", "utm_campaigns", "automation_rules", "integrations"
+    }
+    if collection not in allowed:
+        raise HTTPException(status_code=400, detail="Unsupported Growth OS collection.")
+    state = load_growth_os()
+    items = state.get(collection, [])
+    filtered = [item for item in items if item.get("id") != item_id]
+    if len(filtered) == len(items):
+        raise HTTPException(status_code=404, detail="Growth OS item not found.")
+    state[collection] = filtered
+    save_growth_os(state)
+    return {"status": "SUCCESS", "message": "Growth OS item deleted."}
+
+@app.patch("/api/growth-os/{section}")
+def update_growth_section(section: str, req: GrowthUpdateRequest):
+    allowed = {"brand_kit", "link_in_bio"}
+    if section not in allowed:
+        raise HTTPException(status_code=400, detail="Unsupported Growth OS section.")
+    state = load_growth_os()
+    existing = state.get(section, {})
+    if isinstance(existing, dict):
+        existing.update(req.data)
+        state[section] = existing
+    else:
+        state[section] = req.data
+    save_growth_os(state)
+    return {"status": "SUCCESS", "section": state[section]}
+
+@app.post("/api/growth-os/campaign-plan")
+def generate_campaign_plan(req: CampaignPlanRequest):
+    state = load_growth_os()
+    settings = load_settings()
+    start = datetime.now().date()
+    prompt = f"""
+    Build a 30-day social media campaign calendar from real current strategy context.
+    Business URL: {req.business_url or settings.get("public_base_url") or "unknown"}
+    Goals: {req.goals or "not specified"}
+    Audience: {req.audience or "not specified"}
+    Brand kit: {json.dumps(state.get("brand_kit", {}))}
+    Recent listening signals: {json.dumps(state.get("listening_signals", [])[:12])}
+    Competitor intelligence: {json.dumps(state.get("competitors", [])[:12])}
+
+    Return JSON only:
+    {{"plan":[{{"day":1,"date":"YYYY-MM-DD","platform":"linkedin|twitter|instagram|youtube|tiktok","theme":"...","hook":"...","asset_type":"...","template":"...","goal":"...","source_signal_url":"..."}}]}}
+    Make exactly 30 entries starting on {start.isoformat()}. Use real signal URLs where available, otherwise empty string.
+    """
+    try:
+        data = call_gemini_json(settings, prompt, {"plan": []})
+        plan = data.get("plan", []) if isinstance(data, dict) else []
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"AI campaign planning failed: {str(e)}")
+    if len(plan) != 30:
+        raise HTTPException(status_code=502, detail="AI campaign planner did not return a complete 30-day plan.")
+    for idx, item in enumerate(plan):
+        item.setdefault("id", f"day-{idx + 1}")
+        item["day"] = idx + 1
+        item.setdefault("date", (start + timedelta(days=idx)).isoformat())
+    state["campaign_plan"] = plan
+    save_growth_os(state)
+    return {"status": "SUCCESS", "plan": plan}
+
+@app.post("/api/growth-os/report")
+def create_growth_report():
+    state = load_growth_os()
+    settings = load_settings()
+    report = build_auto_report()
+    files = write_growth_report_files(report)
+    report.update(files)
+    report["email_status"] = email_growth_report_if_configured(report, files, settings)
+    state.setdefault("report_history", []).insert(0, report)
+    state["report_history"] = state["report_history"][:20]
+    save_growth_os(state)
+    return {"status": "SUCCESS", "report": report}
+
+@app.post("/api/growth-os/run-automation-rules")
+def run_growth_rules_endpoint():
+    state = load_growth_os()
+    settings = load_settings()
+    events = run_growth_automation_rules(state, settings)
+    return {"status": "SUCCESS", "events": events}
+
+@app.post("/api/growth-os/utm")
+def build_utm_link(req: UtmBuildRequest):
+    from urllib.parse import urlencode
+    state = load_growth_os()
+    params = {
+        "utm_source": req.source,
+        "utm_medium": req.medium,
+        "utm_campaign": req.campaign,
+    }
+    if req.content:
+        params["utm_content"] = req.content
+    separator = "&" if "?" in req.base_url else "?"
+    url = f"{req.base_url}{separator}{urlencode(params)}"
+    item = {
+        "id": str(uuid.uuid4()),
+        "base_url": req.base_url,
+        "url": url,
+        "tracked_url": f"/r/{{id}}",
+        "source": req.source,
+        "medium": req.medium,
+        "campaign": req.campaign,
+        "content": req.content,
+        "clicks": 0,
+        "created_at": datetime.now().isoformat()
+    }
+    item["tracked_url"] = f"/r/{item['id']}"
+    state.setdefault("utm_campaigns", []).insert(0, item)
+    save_growth_os(state)
+    return {"status": "SUCCESS", "utm": item}
+
+@app.get("/r/{link_id}")
+def tracked_redirect(link_id: str):
+    state = load_growth_os()
+    for item in state.get("utm_campaigns", []):
+        if item.get("id") == link_id:
+            item["clicks"] = int(item.get("clicks") or 0) + 1
+            item["last_click_at"] = datetime.now().isoformat()
+            save_growth_os(state)
+            return RedirectResponse(item.get("url") or item.get("base_url") or "/")
+    raise HTTPException(status_code=404, detail="Tracked link not found.")
+
+@app.get("/b/{slug}", response_class=HTMLResponse)
+def link_in_bio_page(slug: str):
+    state = load_growth_os()
+    bio = state.get("link_in_bio", {})
+    if slug != bio.get("slug", "6frame"):
+        raise HTTPException(status_code=404, detail="Link-in-bio page not found.")
+    links = "".join(
+        f"""<a href="{html.escape(link.get('url', '#'))}" style="display:block;margin:12px 0;padding:14px 18px;border:1px solid rgba(255,255,255,.18);border-radius:10px;color:#fff;text-decoration:none;background:rgba(255,255,255,.06);">{html.escape(link.get('label', 'Link'))}</a>"""
+        for link in bio.get("links", [])
+    )
+    featured = bio.get("featured_video")
+    video_html = f"""<video src="{html.escape(featured)}" controls style="width:100%;border-radius:12px;margin:18px 0;"></video>""" if featured else ""
+    return f"""<html><head><title>{html.escape(bio.get('headline', '6Frame Studio'))}</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" /></head>
+    <body style="margin:0;background:#0a0a0c;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+      <main style="max-width:520px;margin:0 auto;padding:42px 22px;text-align:center;">
+        <h1>{html.escape(bio.get('headline', '6Frame Studio'))}</h1>
+        {video_html}
+        {links}
+      </main>
+    </body></html>"""
+
+def run_multiscene_video_job(job_id: str, req: MultiSceneVideoRequest, settings: dict):
+    try:
+        scene_count = max(3, min(int(req.scene_count or 3), 9))
+        max_duration_by_engine = {
+            "fal_hailuo_23": 10,
+            "fal_hailuo_02": 10,
+            "fal_seedance_fast": 12,
+            "fal_ltx_fast": 20,
+            "google_veo_lite": 5,
+        }
+        max_duration = max_duration_by_engine.get(req.engine, 10)
+        scene_duration = max(2, min(int(req.scene_duration or 6), max_duration))
+        update_job_status(job_id, "PROCESSING", 5, f"Preparing {scene_count}-scene long-form render...")
+
+        clip_paths = []
+        for idx in range(scene_count):
+            sub_job_id = f"{job_id}_scene_{idx + 1}"
+            scene_prompt = (
+                f"{req.prompt}\n\n"
+                f"Scene {idx + 1} of {scene_count}: create a distinct shot with cinematic continuity, "
+                f"no burned-in captions, social ad pacing, premium lighting."
+            )
+            update_job_status(job_id, "PROCESSING", 8 + idx, f"Rendering scene {idx + 1}/{scene_count}...")
+            run_video_generation(
+                job_id=sub_job_id,
+                prompt=scene_prompt,
+                settings=settings,
+                engine=req.engine,
+                duration=scene_duration
+            )
+            sub_status = get_job_status(sub_job_id)
+            if sub_status.get("status") != "SUCCESS":
+                raise RuntimeError(sub_status.get("message") or f"Scene {idx + 1} failed.")
+            public_path = sub_status.get("result", {}).get("video_path")
+            if not public_path:
+                raise RuntimeError(f"Scene {idx + 1} did not return a video path.")
+            clip_paths.append(resolve_local_video_path(public_path))
+            progress = min(70, 10 + int(((idx + 1) / scene_count) * 60))
+            update_job_status(job_id, "PROCESSING", progress, f"Scene {idx + 1}/{scene_count} complete.")
+
+        concat_file_path = os.path.join(GENERATED_DIR, f"{job_id}_concat.txt")
+        stitched_path = os.path.join(GENERATED_DIR, f"{job_id}_multiscene.mp4")
+        with open(concat_file_path, "w") as cf:
+            for clip_path in clip_paths:
+                cf.write(f"file '{clip_path}'\n")
+
+        update_job_status(job_id, "PROCESSING", 78, "Stitching scenes into one long-form video...")
+        concat_result = subprocess.run(
+            [
+                get_binary_path("ffmpeg"), "-y", "-f", "concat", "-safe", "0", "-i", concat_file_path,
+                "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart",
+                stitched_path
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        if concat_result.returncode != 0 or not os.path.exists(stitched_path):
+            raise RuntimeError(f"ffmpeg stitching failed: {concat_result.stderr}")
+        if os.path.exists(concat_file_path):
+            os.remove(concat_file_path)
+
+        final_path = stitched_path
+        template_info = None
+        if req.apply_template:
+            update_job_status(job_id, "PROCESSING", 88, "Applying internal HyperFrames template...")
+            templated_path = os.path.join(GENERATED_DIR, f"{job_id}_multiscene_template.mp4")
+            template_info = render_template_video(
+                source_video_path=stitched_path,
+                output_path=templated_path,
+                template_id=req.template_id or settings.get("viral_template_style", "hook_burst"),
+                title=req.title or "Multi-Scene Campaign",
+                subtitle=req.subtitle or "Generated by 6Frame Studio Growth OS",
+                work_root=os.path.join(UPLOAD_DIR, "template_renders"),
+                quality=settings.get("viral_template_quality", "standard"),
+                timeout=360
+            )
+            final_path = templated_path
+
+        public_final = f"/static/assets/generated/{os.path.basename(final_path)}"
+        update_job_status(
+            job_id,
+            "SUCCESS",
+            100,
+            "Multi-scene video complete.",
+            {
+                "video_path": public_final,
+                "scene_count": scene_count,
+                "scene_duration": scene_duration,
+                "engine": req.engine,
+                "clips": [f"/static/assets/generated/{os.path.basename(path)}" for path in clip_paths],
+                "template": template_info,
+            }
+        )
+    except Exception as e:
+        logger.exception("Multi-scene video generation failed")
+        update_job_status(job_id, "FAILED", 0, f"Multi-scene video failed: {str(e)}")
+
+@app.post("/api/growth-os/multiscene-video")
+def create_multiscene_video(req: MultiSceneVideoRequest, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    settings = load_settings()
+    update_job_status(job_id, "PENDING", 0, "Multi-scene video job queued...")
+    background_tasks.add_task(run_multiscene_video_job, job_id, req, settings)
+    return {"job_id": job_id}
 
 # ==========================================================================
 # ENGAGEMENT INBOX — AI-drafted replies to Twitter/X mentions, queued here
@@ -1767,7 +4205,7 @@ def send_engagement_reply(item_id: str):
     try:
         if settings.get("mock_mode", True):
             logger.info("[MOCK] Sending engagement reply")
-        else:
+        elif target.get("platform") == "twitter":
             client = tweepy.Client(
                 consumer_key=settings["twitter_consumer_key"],
                 consumer_secret=settings["twitter_consumer_secret"],
@@ -1775,6 +4213,43 @@ def send_engagement_reply(item_id: str):
                 access_token_secret=settings["twitter_access_token_secret"]
             )
             client.create_tweet(text=target["drafted_reply"], in_reply_to_tweet_id=target["source_tweet_id"])
+        elif target.get("platform") == "instagram":
+            if not settings.get("instagram_access_token") or not target.get("source_comment_id"):
+                raise ValueError("Missing Instagram token or comment ID.")
+            res = requests.post(
+                f"https://graph.facebook.com/v21.0/{target['source_comment_id']}/replies",
+                data={"message": target["drafted_reply"], "access_token": settings["instagram_access_token"]},
+                timeout=30
+            )
+            if res.status_code != 200:
+                raise ValueError(f"Instagram reply failed: {res.text}")
+        elif target.get("platform") == "facebook":
+            if not settings.get("facebook_page_access_token") or not target.get("source_comment_id"):
+                raise ValueError("Missing Facebook page token or comment ID.")
+            res = requests.post(
+                f"https://graph.facebook.com/v21.0/{target['source_comment_id']}/comments",
+                data={"message": target["drafted_reply"], "access_token": settings["facebook_page_access_token"]},
+                timeout=30
+            )
+            if res.status_code != 200:
+                raise ValueError(f"Facebook reply failed: {res.text}")
+        elif target.get("platform") == "youtube":
+            token = youtube_access_token(settings)
+            if not token or not target.get("source_comment_id"):
+                raise ValueError("Missing YouTube token or comment ID.")
+            res = requests.post(
+                "https://www.googleapis.com/youtube/v3/comments",
+                params={"part": "snippet"},
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json={"snippet": {"parentId": target["source_comment_id"], "textOriginal": target["drafted_reply"]}},
+                timeout=30
+            )
+            if res.status_code not in (200, 201):
+                raise ValueError(f"YouTube reply failed: {res.text}")
+        elif settings.get("postproxy_enabled") and (settings.get("postproxy_api_key") or os.environ.get("POSTPROXY_API_KEY")):
+            target["postproxy_reply_result"] = postproxy_reply_to_comment(settings, target)
+        else:
+            raise ValueError(f"Sending replies is not implemented for platform: {target.get('platform')}")
         target["status"] = "SENT"
         target["sent_at"] = datetime.now().isoformat()
         save_engagement_queue(items)
@@ -1798,8 +4273,8 @@ def dismiss_engagement_reply(item_id: str):
 @app.post("/api/engagement-queue/refresh")
 def refresh_engagement_queue(background_tasks: BackgroundTasks):
     settings = load_settings()
-    background_tasks.add_task(fetch_and_draft_mention_replies, settings)
-    return {"status": "SUCCESS", "message": "Checking for new mentions in the background."}
+    background_tasks.add_task(fetch_all_social_inbox, settings)
+    return {"status": "SUCCESS", "message": "Checking connected social inboxes in the background."}
 
 # TikTok domain (URL prefix) verification file — for the Content Posting API's
 # pull_by_url requirement
@@ -1929,6 +4404,11 @@ def terms_of_service():
     <h2>Contact</h2>
     <p>Questions about these terms can be directed to {os.environ.get("CONTACT_EMAIL", "the account owner")}.</p>
     </body></html>"""
+
+# Mount durable generated assets before the broader static folder so legacy
+# /static/assets/generated/... URLs resolve to the Railway volume.
+app.mount("/static/assets/generated", StaticFiles(directory=GENERATED_DIR), name="generated_assets")
+app.mount("/reports", StaticFiles(directory=REPORTS_DIR), name="reports")
 
 # Mount static files folder
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")

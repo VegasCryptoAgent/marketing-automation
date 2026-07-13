@@ -8,7 +8,11 @@ import requests
 
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 REDIRECT_URI = "http://localhost:8080/callback"
-SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+SCOPE = " ".join([
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
+    "https://www.googleapis.com/auth/youtube.readonly",
+])
 
 captured_code = None
 

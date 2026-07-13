@@ -7,11 +7,84 @@ from typing import Dict, Any, List
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
+import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("orchestrator")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATE_DIR = os.environ.get("STATE_DIR") or os.environ.get("DATA_DIR") or BASE_DIR
+GENERATED_DIR = os.path.join(STATE_DIR, "generated")
+os.makedirs(GENERATED_DIR, exist_ok=True)
+
+def resolve_local_generated_path(video_path: str) -> str:
+    if video_path.startswith("/static/assets/generated/"):
+        candidate = os.path.join(GENERATED_DIR, os.path.basename(video_path))
+    elif video_path.startswith("static/assets/generated/"):
+        candidate = os.path.join(GENERATED_DIR, os.path.basename(video_path))
+    elif video_path.startswith("/static/"):
+        candidate = os.path.join(BASE_DIR, video_path.lstrip("/"))
+    elif video_path.startswith("static/"):
+        candidate = os.path.join(BASE_DIR, video_path)
+    else:
+        candidate = video_path
+    resolved = os.path.realpath(candidate)
+    allowed_roots = (
+        os.path.realpath(GENERATED_DIR),
+        os.path.realpath(os.path.join(BASE_DIR, "static")),
+    )
+    if not any(os.path.commonpath((resolved, root)) == root for root in allowed_roots):
+        raise ValueError("Video path must reference generated media.")
+    if os.path.splitext(resolved)[1].lower() not in {".mp4", ".mov", ".m4v", ".webm"}:
+        raise ValueError("Video path must reference a supported video file.")
+    return resolved
+
+FAL_TEXT_VIDEO_ENGINES = {
+    "fal_hailuo_23": {
+        "model": "fal-ai/minimax/hailuo-2.3/standard/text-to-video",
+        "label": "FAL MiniMax Hailuo 2.3 Standard",
+        "durations": [6, 10],
+        "payload": lambda prompt, duration: {
+            "prompt": prompt,
+            "duration": str(duration),
+            "prompt_optimizer": True,
+        },
+    },
+    "fal_hailuo_02": {
+        "model": "fal-ai/minimax/hailuo-02/standard/text-to-video",
+        "label": "FAL MiniMax Hailuo 02 Standard",
+        "durations": [6, 10],
+        "payload": lambda prompt, duration: {
+            "prompt": prompt,
+            "duration": str(duration),
+            "prompt_optimizer": True,
+        },
+    },
+    "fal_seedance_fast": {
+        "model": "fal-ai/bytedance/seedance/v1/pro/fast/text-to-video",
+        "label": "FAL Seedance 1.0 Pro Fast",
+        "durations": list(range(2, 13)),
+        "payload": lambda prompt, duration: {
+            "prompt": prompt,
+            "aspect_ratio": "16:9",
+            "resolution": "720p",
+            "duration": str(duration),
+            "enable_safety_checker": True,
+        },
+    },
+    "fal_ltx_fast": {
+        "model": "fal-ai/ltx-2/text-to-video/fast",
+        "label": "FAL LTX Video 2.0 Fast",
+        "durations": [6, 8, 10, 12, 14, 16, 18, 20],
+        "payload": lambda prompt, duration: {
+            "prompt": prompt,
+            "duration": duration,
+            "resolution": "1080p",
+            "fps": 25,
+            "generate_audio": True,
+        },
+    },
+}
 
 def get_binary_path(name: str) -> str:
     import shutil
@@ -76,7 +149,7 @@ class ViralConcept(BaseModel):
 
 
 class ViralSearchResponse(BaseModel):
-    trends: List[ViralConcept] = Field(description="A list of exactly 10 viral video concepts found on social media from the last 24 hours.")
+    trends: List[ViralConcept] = Field(description="A list of viral video concepts found on social media from the last 24 hours. The app will only publish entries with verified direct source URLs.")
 
 # In-memory job status cache
 jobs_status: Dict[str, Dict[str, Any]] = {}
@@ -251,9 +324,11 @@ def check_url_valid(url: str, platform: str = "") -> bool:
     import urllib.parse as _up
     if not url or not url.startswith("http"):
         return False
+    host = _up.urlparse(url).netloc.lower()
+    if host in {"google.com", "www.google.com"} or "/search" in _up.urlparse(url).path:
+        return False
     if any(p in url for p in MOCK_URL_PATTERNS):
         return False
-    host = _up.urlparse(url).netloc.lower()
     platform_lower = (platform or "").lower()
     for key, domains in PLATFORM_DOMAINS.items():
         if key in platform_lower or (key == "twitter" and "x" in platform_lower.replace("twitter/x", "twitter")):
@@ -282,8 +357,7 @@ def resolve_trend_mock_url(title: str, platform: str = "") -> str:
         if key in ("youtube", "reddit"):
             continue
         if key in platform_lower:
-            query = urllib.parse.quote(f"site:{domains[0]} {title}")
-            return f"https://www.google.com/search?q={query}"
+            return "unknown"
     cmd = [
         get_binary_path("yt-dlp"),
         "--no-playlist",
@@ -299,8 +373,7 @@ def resolve_trend_mock_url(title: str, platform: str = "") -> str:
             return url
     except Exception as e:
         logger.error(f"Failed resolving mock URL for trend: {title}. Error: {e}")
-    # Honest fallback: a real YouTube search for the trend title, never an unrelated video.
-    return "https://www.youtube.com/results?search_query=" + urllib.parse.quote(title)
+    return "unknown"
 
 def fetch_realtime_news_context() -> str:
     import xml.etree.ElementTree as ET
@@ -372,8 +445,11 @@ def fetch_instagram_hashtag_context(settings: Dict[str, Any]) -> str:
     cutoff = datetime.now() - timedelta(days=INSTAGRAM_HASHTAG_ROLLING_WINDOW_DAYS)
     usage = {h: ts for h, ts in usage.items() if datetime.fromisoformat(ts) > cutoff}
 
+    # Meta hashtag search has a rolling quota and often rejects large top_media requests.
+    # Rotate a small window per run and let Google grounding fill the rest of the scan.
+    max_hashtags = int(settings.get("instagram_hashtag_scan_limit") or 4)
     lines = []
-    for hashtag in hashtags:
+    for hashtag in hashtags[:max(1, max_hashtags)]:
         hashtag = hashtag.lower()
         try:
             hashtag_id = hashtag_ids.get(hashtag)
@@ -387,7 +463,7 @@ def fetch_instagram_hashtag_context(settings: Dict[str, Any]) -> str:
                 search_res = requests.get(
                     "https://graph.facebook.com/v21.0/ig_hashtag_search",
                     params={"user_id": ig_user_id, "q": hashtag, "access_token": access_token},
-                    timeout=15,
+                    timeout=8,
                 )
                 if search_res.status_code != 200:
                     logger.warning(f"Instagram hashtag search failed for '#{hashtag}': {search_res.text[:200]}")
@@ -403,15 +479,28 @@ def fetch_instagram_hashtag_context(settings: Dict[str, Any]) -> str:
                 f"https://graph.facebook.com/v21.0/{hashtag_id}/top_media",
                 params={
                     "user_id": ig_user_id,
-                    "fields": "id,caption,permalink,like_count,comments_count,media_type,timestamp",
+                    "fields": "id,caption,permalink,like_count,comments_count",
+                    "limit": 1,
                     "access_token": access_token,
                 },
-                timeout=15,
+                timeout=8,
             )
             if media_res.status_code != 200:
-                logger.warning(f"Instagram top_media fetch failed for '#{hashtag}': {media_res.text[:200]}")
-                continue
-            for post in media_res.json().get("data", [])[:8]:
+                logger.warning(f"Instagram top_media fetch failed for '#{hashtag}', retrying smaller payload: {media_res.text[:200]}")
+                media_res = requests.get(
+                    f"https://graph.facebook.com/v21.0/{hashtag_id}/top_media",
+                    params={
+                        "user_id": ig_user_id,
+                        "fields": "id,caption,permalink",
+                        "limit": 1,
+                        "access_token": access_token,
+                    },
+                    timeout=8,
+                )
+                if media_res.status_code != 200:
+                    logger.warning(f"Instagram compact top_media fetch failed for '#{hashtag}': {media_res.text[:200]}")
+                    continue
+            for post in media_res.json().get("data", [])[:1]:
                 caption = (post.get("caption") or "").replace("\n", " ")[:200]
                 lines.append(
                     f"- Platform: Instagram | URL: {post.get('permalink')} | "
@@ -465,9 +554,9 @@ def run_live_trend_scanner(
 
         {instagram_context_block}
 
-        URL RULES (CRITICAL): The URL you report for each trend MUST be the REAL, direct link to the original viral post on its source platform, exactly as it appears in your search results (or in the verified Instagram post list above) — an instagram.com/reel/... link for an Instagram trend, an x.com/.../status/... link for a Twitter/X trend, a youtube.com/watch?v=... link for a YouTube trend, and so on. NEVER substitute a video from a different platform, and NEVER fabricate, guess, or reconstruct a URL (no placeholder IDs like 'examplecyber', 'abcdef', 'status/12345', 'your_post_id'). If you cannot find the exact post URL in your search results, write "unknown" as the URL and still report the trend.
+        URL RULES (CRITICAL): The URL you report for each trend MUST be the REAL, direct link to the original viral post on its source platform, exactly as it appears in your search results (or in the verified Instagram post list above) — an instagram.com/reel/... link for an Instagram trend, an x.com/.../status/... link for a Twitter/X trend, a youtube.com/watch?v=... link for a YouTube trend, and so on. NEVER substitute a video from a different platform, and NEVER fabricate, guess, or reconstruct a URL (no placeholder IDs like 'examplecyber', 'abcdef', 'status/12345', 'your_post_id'). Return more than 10 candidate trends if needed, because the app will filter out anything without a verified direct original URL. If you cannot find the exact post URL in your search results, write "unknown" as the URL and still report the trend as a candidate.
 
-        For each of the 10 trends identified, describe:
+        For each trend candidate identified, describe:
         1. The EXACT source platform where it was found (Reddit, YouTube, Twitter/X, LinkedIn, or Instagram). DO NOT use generic labels like "public news" or "news".
         2. The direct URL of the original post, following the URL rules above.
         3. The author or creator's username
@@ -507,11 +596,11 @@ def run_live_trend_scanner(
 
         adaptation_prompt = f"""
         You are 6Frame Studio, literally recreating viral AI video content found across social media.
-        We have researched the top 10 viral AI video trends from the last 24 hours:
+        We have researched viral AI video trend candidates from the last 24 hours:
 
         {search_text}
 
-        For each of these 10 trending concepts, your goal is a LITERAL recreation, not a loosely-inspired new idea:
+        For each of these trending concepts, your goal is a LITERAL recreation, not a loosely-inspired new idea:
         1. Keep the EXACT platform name (Reddit, YouTube, Twitter/X, LinkedIn, or Instagram), author, title, and viral metrics. NEVER replace the platform name with "public news", "news", or any generic label. Keep the URL EXACTLY as reported in the research notes — the original post's link on its source platform. If the research notes say the URL is "unknown", output "unknown" as the URL. Never invent, alter, or substitute URLs.
         2. Describe the original video's exact visual content, subject, camera movement, and editing technique (original_concept).
         3. Describe the literal recreation plan: how 6Frame Studio will recreate the SAME video shot-for-shot — same subject, scene, and motion — finished in 6Frame Studio's premium cinematic style (studio_adaptation_concept).
@@ -547,15 +636,32 @@ def run_live_trend_scanner(
             update_job_status(job_id, "FAILED", 0, "Failed to parse structured JSON from Gemini Pro.")
             return
 
+        verified_trends = []
+        unresolved_count = 0
         for trend in results.trends:
             if not check_url_valid(trend.url, trend.platform):
                 logger.info(f"Invalid or mock URL detected: {trend.url}. Resolving dynamically for: {trend.title}")
                 trend.url = resolve_trend_mock_url(trend.title, trend.platform)
+            if check_url_valid(trend.url, trend.platform):
+                verified_trends.append(trend)
+            else:
+                unresolved_count += 1
+
+        if not verified_trends:
+            update_job_status(
+                job_id,
+                "FAILED",
+                0,
+                "Trend search found candidates, but none had verified direct original post URLs. Try again with different hashtags or broader platform access.",
+            )
+            return
 
         final_result = {
-            "trends": [trend.model_dump() for trend in results.trends]
+            "trends": [trend.model_dump() for trend in verified_trends[:10]],
+            "verified_count": len(verified_trends),
+            "filtered_unresolved_count": unresolved_count,
         }
-        update_job_status(job_id, "SUCCESS", 100, "Live trend search complete!", result=final_result)
+        update_job_status(job_id, "SUCCESS", 100, "Live trend search complete with verified direct URLs.", result=final_result)
 
     except Exception as e:
         logger.exception("Error in live trend scanner")
@@ -577,7 +683,7 @@ def run_runway_rendering(job_id: str, prompt: str, settings: Dict[str, Any], dur
             "Content-Type": "application/json"
         }
         
-        assets_dir = os.path.join(BASE_DIR, "static", "assets", "generated")
+        assets_dir = GENERATED_DIR
         os.makedirs(assets_dir, exist_ok=True)
         dest_path = os.path.join(assets_dir, f"{job_id}.mp4")
 
@@ -795,6 +901,118 @@ def run_runway_rendering(job_id: str, prompt: str, settings: Dict[str, Any], dur
         logger.exception("Error in Runway rendering")
         update_job_status(job_id, "FAILED", 0, f"Runway generation failed: {str(e)}")
 
+def _closest_supported_duration(duration: int, supported: List[int]) -> int:
+    return min(supported, key=lambda candidate: abs(candidate - duration))
+
+def _extract_fal_video_url(result: Dict[str, Any]) -> str:
+    data = result.get("data") if isinstance(result.get("data"), dict) else result
+    video = data.get("video") if isinstance(data, dict) else None
+    if isinstance(video, dict) and video.get("url"):
+        return video["url"]
+    if isinstance(data, dict) and data.get("video_url"):
+        return data["video_url"]
+    if isinstance(data, dict) and isinstance(data.get("videos"), list) and data["videos"]:
+        first = data["videos"][0]
+        if isinstance(first, dict) and first.get("url"):
+            return first["url"]
+        if isinstance(first, str):
+            return first
+    raise ValueError("FAL result did not include a downloadable video URL.")
+
+def run_fal_video_generation(job_id: str, prompt: str, settings: Dict[str, Any], engine: str, duration: int = 6):
+    try:
+        engine_config = FAL_TEXT_VIDEO_ENGINES.get(engine)
+        if not engine_config:
+            update_job_status(job_id, "FAILED", 0, f"Unsupported FAL video engine: {engine}")
+            return
+
+        api_key = settings.get("fal_api_key") or os.environ.get("FAL_KEY")
+        if not api_key:
+            update_job_status(job_id, "FAILED", 0, "Missing FAL API Key. Add FAL_KEY or configure it in Settings.")
+            return
+
+        model = engine_config["model"]
+        label = engine_config["label"]
+        render_duration = _closest_supported_duration(int(duration or 6), engine_config["durations"])
+        payload = engine_config["payload"](prompt, render_duration)
+        headers = {
+            "Authorization": f"Key {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        update_job_status(job_id, "PROCESSING", 10, f"Submitting {render_duration}s render to {label}...")
+        submit_url = f"https://queue.fal.run/{model}"
+        submit_response = requests.post(submit_url, headers=headers, json=payload, timeout=60)
+        if submit_response.status_code not in [200, 201, 202]:
+            update_job_status(job_id, "FAILED", 0, f"{label} submit error: {submit_response.text}")
+            return
+
+        submit_data = submit_response.json()
+        request_id = submit_data.get("request_id") or submit_data.get("requestId")
+        if not request_id:
+            update_job_status(job_id, "FAILED", 0, f"{label} did not return a request id.")
+            return
+
+        status_url = submit_data.get("status_url") or f"https://queue.fal.run/{model}/requests/{request_id}/status"
+        result_url = submit_data.get("response_url") or f"https://queue.fal.run/{model}/requests/{request_id}/response"
+        update_job_status(job_id, "PROCESSING", 25, f"{label} queued. Polling render status...")
+
+        poll_count = 0
+        while True:
+            time.sleep(5)
+            poll_count += 1
+            progress = min(25 + (poll_count * 4), 94)
+            status_response = requests.get(status_url, headers=headers, params={"logs": "1"}, timeout=30)
+            if status_response.status_code not in [200, 202]:
+                logger.warning("FAL status polling error for %s: %s", request_id, status_response.text)
+                update_job_status(job_id, "PROCESSING", progress, f"{label} is rendering...")
+                continue
+
+            status_data = status_response.json()
+            status = status_data.get("status") or status_data.get("state") or ""
+            if status == "COMPLETED":
+                break
+            if status in {"FAILED", "ERROR", "CANCELLED"}:
+                update_job_status(job_id, "FAILED", 0, f"{label} failed: {status_data}")
+                return
+
+            log_message = ""
+            logs = status_data.get("logs") or []
+            if logs and isinstance(logs[-1], dict):
+                log_message = logs[-1].get("message") or ""
+            update_job_status(job_id, "PROCESSING", progress, log_message or f"{label} status: {status or 'IN_PROGRESS'}")
+
+        update_job_status(job_id, "PROCESSING", 96, f"{label} render complete. Fetching result...")
+        result_response = requests.get(result_url, headers=headers, timeout=60)
+        if result_response.status_code != 200:
+            update_job_status(job_id, "FAILED", 0, f"{label} result error: {result_response.text}")
+            return
+
+        video_url = _extract_fal_video_url(result_response.json())
+        download_response = requests.get(video_url, timeout=120)
+        if download_response.status_code != 200:
+            update_job_status(job_id, "FAILED", 0, f"Failed to download video from {label}. HTTP status: {download_response.status_code}")
+            return
+
+        assets_dir = GENERATED_DIR
+        os.makedirs(assets_dir, exist_ok=True)
+        dest_path = os.path.join(assets_dir, f"{job_id}.mp4")
+        with open(dest_path, "wb") as f:
+            f.write(download_response.content)
+
+        video_web_path = f"/static/assets/generated/{job_id}.mp4"
+        update_job_status(
+            job_id,
+            "SUCCESS",
+            100,
+            f"{label} rendering complete!",
+            result={"video_path": video_web_path, "engine": engine, "engine_label": label},
+        )
+
+    except Exception as e:
+        logger.exception("Error in FAL video generation")
+        update_job_status(job_id, "FAILED", 0, f"FAL video generation failed: {str(e)}")
+
 def run_video_generation(
     job_id: str,
     prompt: str,
@@ -804,6 +1022,9 @@ def run_video_generation(
 ):
     if engine == "runway_gen3":
         run_runway_rendering(job_id, prompt, settings, duration)
+        return
+    if engine in FAL_TEXT_VIDEO_ENGINES:
+        run_fal_video_generation(job_id, prompt, settings, engine, duration)
         return
 
     try:
@@ -818,8 +1039,15 @@ def run_video_generation(
             http_options=types.HttpOptions(timeout=180000)
         )
 
-        model_name = "veo-3.1-fast-generate-preview" if engine == "google_veo_fast" else "veo-3.1-generate-preview"
-        engine_label = "Google Veo 3.1 Fast" if engine == "google_veo_fast" else "Google Veo 3.1"
+        if engine == "google_veo_lite":
+            model_name = "veo-3.1-lite-generate-preview"
+            engine_label = "Google Veo 3.1 Lite"
+        elif engine == "google_veo_fast":
+            model_name = "veo-3.1-fast-generate-preview"
+            engine_label = "Google Veo 3.1 Fast"
+        else:
+            model_name = "veo-3.1-generate-preview"
+            engine_label = "Google Veo 3.1"
         
         update_job_status(job_id, "PROCESSING", 25, f"Submitting video generation request to {engine_label}...")
         
@@ -901,7 +1129,7 @@ def run_video_generation(
             video_content = response.content
             
         # Target path
-        assets_dir = os.path.join(BASE_DIR, "static", "assets", "generated")
+        assets_dir = GENERATED_DIR
         os.makedirs(assets_dir, exist_ok=True)
         dest_path = os.path.join(assets_dir, f"{job_id}.mp4")
         
@@ -976,15 +1204,13 @@ def render_variant_with_fallback(input_path: str, output_path: str, width: int, 
 
 def generate_video_variants(job_id: str, video_path: str, hook_text: str):
     try:
-        abs_video_path = video_path
-        if video_path.startswith("/static/"):
-            abs_video_path = os.path.join(BASE_DIR, video_path.lstrip("/"))
+        abs_video_path = resolve_local_generated_path(video_path)
         if not os.path.exists(abs_video_path):
             update_job_status(job_id, "FAILED", 0, f"Source video not found at {abs_video_path}")
             return
 
         update_job_status(job_id, "PROCESSING", 10, "Preparing platform variants (9:16, 1:1, 16:9)...")
-        assets_dir = os.path.join(BASE_DIR, "static", "assets", "generated")
+        assets_dir = GENERATED_DIR
         os.makedirs(assets_dir, exist_ok=True)
         font_path = get_font_path()
         if not font_path:
@@ -1173,4 +1399,3 @@ def repurpose_video_link_copy(url: str, settings: Dict[str, Any]) -> RepurposedC
     except Exception as e:
         logger.error(f"Failed to parse repurposed copy structure: {e}. Raw: {copy_res.text}")
         raise ValueError("Failed to parse structured JSON from Gemini Pro.")
-

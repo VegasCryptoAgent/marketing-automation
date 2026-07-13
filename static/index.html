@@ -13,6 +13,16 @@
 </head>
 <body>
     <div class="glow-bg"></div>
+    <div id="auth-overlay" class="auth-overlay hidden">
+        <form id="auth-form" class="auth-card glass-card">
+            <div class="header-logo"><span class="logo-accent">6</span>FRAME <span class="logo-subtitle">STUDIO</span></div>
+            <h1>Admin Access</h1>
+            <p>Enter the workspace password to manage publishing, automations, API keys, and paid generation.</p>
+            <input id="auth-password" type="password" autocomplete="current-password" placeholder="Password">
+            <button class="primary-btn" type="submit">Unlock</button>
+            <span id="auth-error" class="auth-error"></span>
+        </form>
+    </div>
     
     <header class="app-header">
         <div class="header-logo">
@@ -21,6 +31,7 @@
         <div class="main-nav">
             <button id="nav-automation" class="nav-link">Autopilot & Cockpit</button>
             <button id="nav-campaigns" class="nav-link active">Viral Trends & Recreation</button>
+            <button id="nav-growth" class="nav-link">Growth OS</button>
             <button id="nav-repurposer" class="nav-link">Repurposer Workshop</button>
             <button id="nav-pipeline" class="nav-link">Upload & Analyze Video</button>
         </div>
@@ -251,7 +262,12 @@
                                           <label for="concept-video-engine" style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Select AI Render Engine</label>
                                           <select id="concept-video-engine" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
                                               <option value="google_veo">Google Veo 3.1 (Cinematic)</option>
+                                              <option value="google_veo_lite">Google Veo 3.1 Lite (Lower Cost)</option>
                                               <option value="google_veo_fast">Google Veo 3.1 Fast</option>
+                                              <option value="fal_hailuo_23">FAL Hailuo 2.3 Standard (Budget)</option>
+                                              <option value="fal_hailuo_02">FAL Hailuo 02 Standard (Lowest Cost)</option>
+                                              <option value="fal_seedance_fast">FAL Seedance Fast (Social)</option>
+                                              <option value="fal_ltx_fast">FAL LTX Video 2.0 Fast</option>
                                               <option value="runway_gen3">Runway Gen-3 (Alpha Turbo / Gen-4.5)</option>
                                           </select>
                                       </div>
@@ -259,7 +275,14 @@
                                           <label for="concept-video-duration" style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Select Video Duration</label>
                                           <select id="concept-video-duration" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
                                               <option value="5">5 seconds (Quick Preview)</option>
-                                              <option value="10" disabled>10 seconds (Single Scene - Runway Only)</option>
+                                              <option value="6" disabled>6 seconds (FAL Standard)</option>
+                                              <option value="8" disabled>8 seconds (FAL LTX)</option>
+                                              <option value="10" disabled>10 seconds</option>
+                                              <option value="12" disabled>12 seconds (Seedance / LTX)</option>
+                                              <option value="14" disabled>14 seconds (FAL LTX)</option>
+                                              <option value="16" disabled>16 seconds (FAL LTX)</option>
+                                              <option value="18" disabled>18 seconds (FAL LTX)</option>
+                                              <option value="20" disabled>20 seconds (FAL LTX Max)</option>
                                               <option value="30" disabled>30 seconds (Cinematic Cut - Runway Only)</option>
                                           </select>
                                       </div>
@@ -441,7 +464,12 @@
                                               <label for="trend-video-engine" style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Select AI Render Engine</label>
                                               <select id="trend-video-engine" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
                                                   <option value="google_veo">Google Veo 3.1 (Cinematic)</option>
+                                                  <option value="google_veo_lite">Google Veo 3.1 Lite (Lower Cost)</option>
                                                   <option value="google_veo_fast">Google Veo 3.1 Fast</option>
+                                                  <option value="fal_hailuo_23">FAL Hailuo 2.3 Standard (Budget)</option>
+                                                  <option value="fal_hailuo_02">FAL Hailuo 02 Standard (Lowest Cost)</option>
+                                                  <option value="fal_seedance_fast">FAL Seedance Fast (Social)</option>
+                                                  <option value="fal_ltx_fast">FAL LTX Video 2.0 Fast</option>
                                                   <option value="runway_gen3">Runway Gen-3 (Alpha Turbo)</option>
                                               </select>
                                           </div>
@@ -449,7 +477,14 @@
                                               <label for="trend-video-duration" style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Select Video Duration</label>
                                               <select id="trend-video-duration" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
                                                   <option value="5">5 seconds (Quick Preview)</option>
-                                                  <option value="10" disabled>10 seconds (Single Scene - Runway Only)</option>
+                                                  <option value="6" disabled>6 seconds (FAL Standard)</option>
+                                                  <option value="8" disabled>8 seconds (FAL LTX)</option>
+                                                  <option value="10" disabled>10 seconds</option>
+                                                  <option value="12" disabled>12 seconds (Seedance / LTX)</option>
+                                                  <option value="14" disabled>14 seconds (FAL LTX)</option>
+                                                  <option value="16" disabled>16 seconds (FAL LTX)</option>
+                                                  <option value="18" disabled>18 seconds (FAL LTX)</option>
+                                                  <option value="20" disabled>20 seconds (FAL LTX Max)</option>
                                                   <option value="30" disabled>30 seconds (Cinematic Cut - Runway Only)</option>
                                               </select>
                                           </div>
@@ -472,6 +507,27 @@
                                                  <p id="trend-variants-status-msg" style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 0.4rem;">Rendering variants...</p>
                                              </div>
                                              <div id="trend-variants-result" class="hidden" style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.5rem;"></div>
+                                         </div>
+                                     </div>
+
+                                     <div id="trend-template-panel" style="border-top: 1px solid var(--border-color); padding-top: 0.7rem; margin-top: 0.7rem; text-align: left;">
+                                         <label for="trend-template-style" style="display:block; font-size: 0.68rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Internal HyperFrames template</label>
+                                         <div style="display: grid; grid-template-columns: 1fr auto; gap: 0.45rem; align-items: center;">
+                                             <select id="trend-template-style" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.72rem; min-width: 0;">
+                                                 <option value="hook_burst">Hook Burst</option>
+                                                 <option value="cinematic_stack">Cinematic Stack</option>
+                                                 <option value="trend_radar">Trend Radar</option>
+                                                 <option value="documentary_interview">Documentary Interview</option>
+                                                 <option value="then_vs_now">Then vs. Now</option>
+                                                 <option value="movie_star_entrance">Movie Star Entrance</option>
+                                                 <option value="meme_master_reaction">Meme Master Reaction</option>
+                                                 <option value="summer_schedule_loop">Summer Schedule Loop</option>
+                                             </select>
+                                             <button id="trend-apply-template-btn" class="secondary-btn" style="font-size: 0.68rem; padding: 0.35rem 0.55rem; white-space: nowrap;">Apply template</button>
+                                         </div>
+                                         <div id="trend-template-loading" class="hidden" style="text-align:center; padding: 0.5rem 0 0;">
+                                             <div class="spinner" style="margin: 0 auto;"></div>
+                                             <p id="trend-template-status-msg" style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 0.4rem;">Applying template...</p>
                                          </div>
                                      </div>
                                  </div>
@@ -865,7 +921,12 @@
                             <label for="cockpit-autonomous-video-engine" style="font-size: 0.75rem; margin-bottom: 0.35rem; display: block; color: var(--text-secondary);">Autopilot Video Render Engine</label>
                             <select id="cockpit-autonomous-video-engine" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 0.5rem; font-size: 0.8rem; width: 100%;">
                                 <option value="google_veo">Google Veo 3.1 (Cinematic)</option>
+                                <option value="google_veo_lite">Google Veo 3.1 Lite (Lower Cost)</option>
                                 <option value="google_veo_fast">Google Veo 3.1 Fast</option>
+                                <option value="fal_hailuo_23">FAL Hailuo 2.3 Standard (Budget)</option>
+                                <option value="fal_hailuo_02">FAL Hailuo 02 Standard (Lowest Cost)</option>
+                                <option value="fal_seedance_fast">FAL Seedance Fast (Social)</option>
+                                <option value="fal_ltx_fast">FAL LTX Video 2.0 Fast</option>
                                 <option value="runway_gen3">Runway Gen-3 (Alpha Turbo / Gen-4.5)</option>
                             </select>
                         </div>
@@ -873,9 +934,48 @@
                             <label for="cockpit-autonomous-video-duration" style="font-size: 0.75rem; margin-bottom: 0.35rem; display: block; color: var(--text-secondary);">Autopilot Video Duration</label>
                             <select id="cockpit-autonomous-video-duration" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 0.5rem; font-size: 0.8rem; width: 100%;">
                                 <option value="5">5 seconds (Quick Preview)</option>
-                                <option value="10">10 seconds (Single Scene - Runway Only)</option>
+                                <option value="6">6 seconds (FAL Standard)</option>
+                                <option value="8">8 seconds (FAL LTX)</option>
+                                <option value="10">10 seconds</option>
+                                <option value="12">12 seconds (Seedance / LTX)</option>
+                                <option value="14">14 seconds (FAL LTX)</option>
+                                <option value="16">16 seconds (FAL LTX)</option>
+                                <option value="18">18 seconds (FAL LTX)</option>
+                                <option value="20">20 seconds (FAL LTX Max)</option>
                                 <option value="30">30 seconds (Cinematic Cut - Runway Only)</option>
                             </select>
+                        </div>
+                        <div class="form-toggle-group" style="background: rgba(255,255,255,0.02); padding: 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 1.25rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <label for="cockpit-viral-template-enabled" style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); cursor: pointer;">Viral Template Packaging</label>
+                                <input type="checkbox" id="cockpit-viral-template-enabled" style="width: 1.5rem; height: 1.5rem; cursor: pointer;">
+                            </div>
+                            <span class="toggle-help" style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-top: 0.35rem;">
+                                Wrap Autopilot videos in a reusable 9:16 template before staging or publishing.
+                            </span>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.6rem; margin-top:0.55rem;">
+                                <div>
+                                    <label for="cockpit-viral-template-style" style="font-size: 0.7rem; color: var(--text-secondary); display:block; margin-bottom:0.25rem;">Template</label>
+                                    <select id="cockpit-viral-template-style" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 0.5rem; font-size: 0.78rem; width: 100%;">
+                                        <option value="hook_burst">Hook Burst</option>
+                                        <option value="cinematic_stack">Cinematic Stack</option>
+                                        <option value="trend_radar">Trend Radar</option>
+                                        <option value="documentary_interview">Documentary Interview</option>
+                                        <option value="then_vs_now">Then vs. Now</option>
+                                        <option value="movie_star_entrance">Movie Star Entrance</option>
+                                        <option value="meme_master_reaction">Meme Master Reaction</option>
+                                        <option value="summer_schedule_loop">Summer Schedule Loop</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="cockpit-viral-template-quality" style="font-size: 0.7rem; color: var(--text-secondary); display:block; margin-bottom:0.25rem;">Quality</label>
+                                    <select id="cockpit-viral-template-quality" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 0.5rem; font-size: 0.78rem; width: 100%;">
+                                        <option value="draft">Draft</option>
+                                        <option value="standard">Standard</option>
+                                        <option value="high">High</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                         <div class="form-toggle-group" style="background: rgba(255,255,255,0.02); padding: 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 0.25rem;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -884,6 +984,13 @@
                             </div>
                             <span class="toggle-help" style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-top: 0.35rem;">
                                 Autonomous with guardrails: Autopilot's daily pick is staged in the Pending Approval queue below instead of publishing immediately. Turn off for fully autonomous posting.
+                            </span>
+                        </div>
+                        <div class="input-group" style="margin-top: 1rem;">
+                            <label for="cockpit-postproxy-daily-publish-limit" style="font-size: 0.75rem; margin-bottom: 0.35rem; display: block; color: var(--text-secondary);">PostProxy Daily Safety Limit</label>
+                            <input type="number" id="cockpit-postproxy-daily-publish-limit" min="1" max="25" step="1" value="2" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 0.5rem; font-size: 0.8rem; width: 100%;">
+                            <span class="toggle-help" style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-top: 0.35rem;">
+                                Caps automatic PostProxy publish records per day. Manual approval can still publish above this limit.
                             </span>
                         </div>
                     </div>
@@ -917,6 +1024,10 @@
                             <span id="diag-runway-status" class="badge" style="font-size: 0.55rem; padding: 0.1rem 0.3rem; border-radius: 4px; font-weight: bold; background: rgba(220, 53, 69, 0.2); color: #dc3545;">INACTIVE</span>
                         </div>
                         <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-size: 0.7rem; color: var(--text-secondary);">FAL Engine</span>
+                            <span id="diag-fal-status" class="badge" style="font-size: 0.55rem; padding: 0.1rem 0.3rem; border-radius: 4px; font-weight: bold; background: rgba(220, 53, 69, 0.2); color: #dc3545;">INACTIVE</span>
+                        </div>
+                        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
                             <span style="font-size: 0.7rem; color: var(--text-secondary);">Twitter Integration</span>
                             <span id="diag-twitter-status" class="badge" style="font-size: 0.55rem; padding: 0.1rem 0.3rem; border-radius: 4px; font-weight: bold; background: rgba(220, 53, 69, 0.2); color: #dc3545;">INACTIVE</span>
                         </div>
@@ -944,6 +1055,10 @@
                             <span style="font-size: 0.7rem; color: var(--text-secondary);">Threads</span>
                             <span id="diag-threads-status" class="badge" style="font-size: 0.55rem; padding: 0.1rem 0.3rem; border-radius: 4px; font-weight: bold; background: rgba(220, 53, 69, 0.2); color: #dc3545;">INACTIVE</span>
                         </div>
+                        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-size: 0.7rem; color: var(--text-secondary);">Report Email</span>
+                            <span id="diag-report-email-status" class="badge" style="font-size: 0.55rem; padding: 0.1rem 0.3rem; border-radius: 4px; font-weight: bold; background: rgba(220, 53, 69, 0.2); color: #dc3545;">INACTIVE</span>
+                        </div>
                     </div>
 
                     <!-- DIRECT KEY INPUTS -->
@@ -961,6 +1076,11 @@
                         <div class="input-group" style="margin-bottom: 0;">
                             <label for="cockpit-runway-key" style="font-size: 0.7rem; color: var(--text-secondary); display: block; margin-bottom: 0.25rem;">Runway API Key</label>
                             <input type="password" id="cockpit-runway-key" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 0.45rem; font-size: 0.75rem; width: 100%;">
+                        </div>
+
+                        <div class="input-group" style="margin-bottom: 0;">
+                            <label for="cockpit-fal-key" style="font-size: 0.7rem; color: var(--text-secondary); display: block; margin-bottom: 0.25rem;">FAL API Key</label>
+                            <input type="password" id="cockpit-fal-key" placeholder="fal-..." style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 0.45rem; font-size: 0.75rem; width: 100%;">
                         </div>
 
                         <div class="input-group" style="margin-bottom: 0;">
@@ -1069,6 +1189,202 @@
                 </div>
             </div>
         </div>
+
+        <!-- Growth OS Command Center -->
+        <div id="growth-view" class="view-content" style="width:100%;">
+            <div class="growth-toolbar glass-card">
+                <div>
+                    <p class="growth-kicker">Agency-grade social automation</p>
+                    <h2>Growth OS Command Center</h2>
+                </div>
+                <div class="growth-actions">
+                    <button id="growth-refresh-btn" class="secondary-btn">Refresh</button>
+                    <button id="growth-report-btn" class="primary-btn">Build Report</button>
+                </div>
+            </div>
+
+            <div class="growth-metrics">
+                <div class="growth-stat"><span>Inbox</span><strong id="growth-stat-inbox">0</strong></div>
+                <div class="growth-stat"><span>Calendar</span><strong id="growth-stat-calendar">0</strong></div>
+                <div class="growth-stat"><span>Assets</span><strong id="growth-stat-assets">0</strong></div>
+                <div class="growth-stat"><span>Best Time</span><strong id="growth-stat-besttime">--</strong></div>
+            </div>
+
+            <div class="growth-grid">
+                <section class="growth-panel growth-panel-wide">
+                    <div class="growth-panel-header"><h3>AI Campaign Planner</h3><span>30-day strategy</span></div>
+                    <div class="growth-inline-form">
+                        <input id="growth-plan-url" type="url" placeholder="Business URL">
+                        <input id="growth-plan-goals" type="text" placeholder="Goals">
+                        <input id="growth-plan-audience" type="text" placeholder="Audience">
+                        <button id="growth-plan-btn" class="primary-btn">Generate</button>
+                    </div>
+                    <div id="growth-campaign-plan" class="growth-list compact"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>Unified Inbox</h3><span>AI replies</span></div>
+                    <div id="growth-inbox-list" class="growth-list"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>Visual Calendar</h3><span>Approvals + schedule</span></div>
+                    <div id="growth-calendar-list" class="growth-list"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>Asset Library</h3><span>Generated media</span></div>
+                    <div id="growth-asset-list" class="growth-list asset-list"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>Social Listening</h3><span>Topics + signals</span></div>
+                    <div class="growth-inline-form two">
+                        <input id="growth-topic-input" type="text" placeholder="Keyword, hashtag, creator">
+                        <button id="growth-add-topic-btn" class="secondary-btn">Add</button>
+                    </div>
+                    <div id="growth-listening-list" class="growth-list"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>Competitors</h3><span>Velocity patterns</span></div>
+                    <div class="growth-inline-form two">
+                        <input id="growth-competitor-input" type="text" placeholder="Competitor name or handle">
+                        <button id="growth-add-competitor-btn" class="secondary-btn">Track</button>
+                    </div>
+                    <div id="growth-competitor-list" class="growth-list"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>Evergreen Queues</h3><span>Content buckets</span></div>
+                    <div id="growth-evergreen-list" class="growth-list"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>Brand Kit + Rules</h3><span>Template matching</span></div>
+                    <div class="growth-inline-form">
+                        <input id="growth-brand-colors" type="text" placeholder="#8b5cf6, #f43f5e">
+                        <input id="growth-brand-logo" type="url" placeholder="Logo URL">
+                        <input id="growth-brand-tone" type="text" placeholder="Tone presets">
+                        <button id="growth-brand-save-btn" class="primary-btn">Save</button>
+                    </div>
+                    <div id="growth-brand-rules" class="growth-list compact"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>A/B Testing</h3><span>Hooks + thumbnails</span></div>
+                    <div class="growth-inline-form two">
+                        <input id="growth-abtest-input" type="text" placeholder="Test name">
+                        <button id="growth-add-abtest-btn" class="secondary-btn">Create</button>
+                    </div>
+                    <div id="growth-abtest-list" class="growth-list"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>AI Social CRM</h3><span>Lead follow-ups</span></div>
+                    <div class="growth-inline-form two">
+                        <input id="growth-crm-input" type="text" placeholder="@handle or contact">
+                        <button id="growth-add-crm-btn" class="secondary-btn">Add</button>
+                    </div>
+                    <div id="growth-crm-list" class="growth-list"></div>
+                </section>
+
+                <section class="growth-panel growth-panel-wide">
+                    <div class="growth-panel-header"><h3>Trend-to-Campaign Pipeline</h3><span>Multi-format outputs</span></div>
+                    <div id="growth-pipeline-list" class="growth-list compact"></div>
+                </section>
+
+                <section class="growth-panel growth-panel-wide">
+                    <div class="growth-panel-header"><h3>Longer Multi-Scene Video Builder</h3><span>3-9 generated clips</span></div>
+                    <div class="growth-inline-form">
+                        <input id="growth-video-prompt" type="text" placeholder="Campaign video prompt">
+                        <select id="growth-video-engine">
+                            <option value="fal_hailuo_02">FAL Hailuo 02</option>
+                            <option value="fal_hailuo_23">FAL Hailuo 2.3</option>
+                            <option value="fal_seedance_fast">FAL Seedance Fast</option>
+                            <option value="fal_ltx_fast">FAL LTX Fast</option>
+                            <option value="google_veo_lite">Gemini Veo Lite</option>
+                        </select>
+                        <select id="growth-video-scenes">
+                            <option value="3">3 scenes</option>
+                            <option value="5">5 scenes</option>
+                            <option value="7">7 scenes</option>
+                            <option value="9">9 scenes</option>
+                        </select>
+                        <select id="growth-video-duration">
+                            <option value="6">6s each</option>
+                            <option value="10">10s each</option>
+                            <option value="12">12s each</option>
+                            <option value="20">20s each</option>
+                        </select>
+                        <select id="growth-video-template">
+                            <option value="hook_burst">Hook Burst</option>
+                            <option value="trend_radar">Trend Radar</option>
+                            <option value="cinematic_stack">Cinematic Stack</option>
+                            <option value="documentary_interview">Documentary Interview</option>
+                            <option value="then_vs_now">Then vs Now</option>
+                        </select>
+                        <button id="growth-multiscene-btn" class="primary-btn">Render</button>
+                    </div>
+                    <div id="growth-multiscene-status" class="growth-status">Ready.</div>
+                    <div id="growth-multiscene-output"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>Link-in-Bio</h3><span>Tracked campaign hub</span></div>
+                    <div class="growth-inline-form">
+                        <input id="growth-bio-slug" type="text" placeholder="Slug">
+                        <input id="growth-bio-headline" type="text" placeholder="Headline">
+                        <input id="growth-bio-video" type="text" placeholder="Featured video path">
+                        <button id="growth-bio-save-btn" class="primary-btn">Save</button>
+                    </div>
+                    <a id="growth-bio-link" class="growth-link" href="/b/6frame" target="_blank" rel="noreferrer">Open public page</a>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>UTM + Click Tracking</h3><span>Campaign links</span></div>
+                    <div class="growth-inline-form">
+                        <input id="growth-utm-url" type="url" placeholder="Destination URL">
+                        <input id="growth-utm-campaign" type="text" placeholder="Campaign">
+                        <input id="growth-utm-content" type="text" placeholder="Content">
+                        <button id="growth-utm-btn" class="secondary-btn">Build</button>
+                    </div>
+                    <div id="growth-utm-list" class="growth-list compact"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>Agency Mode</h3><span>Client workspaces</span></div>
+                    <div class="growth-inline-form two">
+                        <input id="growth-workspace-input" type="text" placeholder="Client workspace">
+                        <button id="growth-add-workspace-btn" class="secondary-btn">Add</button>
+                    </div>
+                    <div id="growth-workspace-list" class="growth-list"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>Automation Rules</h3><span>If-this-then-that</span></div>
+                    <div class="growth-inline-form">
+                        <input id="growth-rule-trigger" type="text" placeholder="Trigger">
+                        <input id="growth-rule-condition" type="text" placeholder="Condition">
+                        <input id="growth-rule-action" type="text" placeholder="Action">
+                        <button id="growth-add-rule-btn" class="secondary-btn">Add</button>
+                        <button id="growth-run-rules-btn" class="primary-btn">Run</button>
+                    </div>
+                    <div id="growth-rules-list" class="growth-list"></div>
+                    <div id="growth-events-list" class="growth-list compact"></div>
+                </section>
+
+                <section class="growth-panel">
+                    <div class="growth-panel-header"><h3>Plugin + Integrations</h3><span>Webhooks + connectors</span></div>
+                    <div id="growth-integrations-list" class="growth-list"></div>
+                </section>
+
+                <section class="growth-panel growth-panel-wide">
+                    <div class="growth-panel-header"><h3>Auto Reports + ROI</h3><span>Weekly summaries</span></div>
+                    <div id="growth-report-list" class="growth-list compact"></div>
+                </section>
+            </div>
+        </div>
     </main>
 
     <!-- SETTINGS MODAL -->
@@ -1093,6 +1409,11 @@
                 <div class="input-group">
                     <label for="runway-key">Runway API Key</label>
                     <input type="password" id="runway-key" placeholder="key_...">
+                </div>
+
+                <div class="input-group">
+                    <label for="fal-key">FAL API Key</label>
+                    <input type="password" id="fal-key" placeholder="fal-...">
                 </div>
 
                 <div class="input-group">
@@ -1227,6 +1548,91 @@
                     </div>
                 </details>
 
+                <details class="credentials-details" style="margin-top: 1rem;" open>
+                    <summary>PostProxy Unified Social Login</summary>
+                    <div class="form-toggle-group" style="margin-top: 0.5rem;">
+                        <label for="postproxy-enabled">Use PostProxy For Publishing</label>
+                        <input type="checkbox" id="postproxy-enabled">
+                        <span class="toggle-help">Routes scheduled/autopilot publishing through PostProxy's unified API when enabled.</span>
+                    </div>
+                    <div class="input-group">
+                        <label for="postproxy-api-key">PostProxy API Key</label>
+                        <input type="password" id="postproxy-api-key" placeholder="PostProxy API key">
+                    </div>
+                    <div class="input-group">
+                        <label for="postproxy-profile-group-id">Default Profile Group ID</label>
+                        <input type="text" id="postproxy-profile-group-id" placeholder="Auto-detects if blank">
+                    </div>
+                    <div class="input-group">
+                        <label for="postproxy-daily-publish-limit">Daily Safety Limit</label>
+                        <input type="number" id="postproxy-daily-publish-limit" min="1" max="25" step="1" value="2">
+                        <span class="toggle-help">Maximum automatic PostProxy publish records per day. Manual approval can override this cap.</span>
+                    </div>
+                    <div class="postproxy-actions">
+                        <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="instagram">Connect Instagram</button>
+                        <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="facebook">Connect Facebook</button>
+                        <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="tiktok">Connect TikTok</button>
+                        <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="youtube">Connect YouTube</button>
+                        <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="linkedin">Connect LinkedIn</button>
+                        <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="twitter">Connect X</button>
+                    </div>
+                    <button id="postproxy-refresh-profiles-btn" type="button" class="secondary-btn" style="width: 100%; margin-top: 0.75rem;">Refresh PostProxy Profiles</button>
+                    <div id="postproxy-profiles-output" class="growth-list" style="margin-top: 0.75rem;"></div>
+                </details>
+
+                <details class="credentials-details" style="margin-top: 1rem;">
+                    <summary>Report Email Delivery (SMTP)</summary>
+                    <div class="input-group">
+                        <label for="report-email-provider">Email Provider</label>
+                        <select id="report-email-provider">
+                            <option value="resend">Resend API</option>
+                            <option value="smtp">SMTP</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="report-email-to">Report Recipient Email</label>
+                        <input type="email" id="report-email-to" placeholder="you@example.com">
+                    </div>
+                    <h4 class="credentials-sub">Resend API</h4>
+                    <div class="input-group">
+                        <label for="resend-api-key">Resend API Key</label>
+                        <input type="password" id="resend-api-key" placeholder="re_...">
+                    </div>
+                    <div class="input-group">
+                        <label for="resend-from">Resend From Address</label>
+                        <input type="text" id="resend-from" placeholder="6Frame Studio <reports@yourdomain.com>">
+                        <span class="toggle-help">Use an address on a verified Resend domain. For initial testing, Resend may allow onboarding@resend.dev only for your account email.</span>
+                    </div>
+                    <h4 class="credentials-sub">SMTP Fallback</h4>
+                    <div class="input-group">
+                        <label for="smtp-host">SMTP Host</label>
+                        <input type="text" id="smtp-host" placeholder="smtp.gmail.com">
+                    </div>
+                    <div class="input-group">
+                        <label for="smtp-port">SMTP Port</label>
+                        <input type="number" id="smtp-port" value="587">
+                    </div>
+                    <div class="input-group">
+                        <label for="smtp-user">SMTP User</label>
+                        <input type="text" id="smtp-user" placeholder="sender@example.com">
+                    </div>
+                    <div class="input-group">
+                        <label for="smtp-password">SMTP Password / App Password</label>
+                        <input type="password" id="smtp-password">
+                    </div>
+                    <div class="input-group">
+                        <label for="smtp-from">From Address</label>
+                        <input type="email" id="smtp-from" placeholder="reports@example.com">
+                    </div>
+                    <div class="form-toggle-group">
+                        <label for="smtp-tls">Use TLS</label>
+                        <input type="checkbox" id="smtp-tls" checked>
+                        <span class="toggle-help">Most providers use port 587 with TLS enabled.</span>
+                    </div>
+                    <button id="provider-diagnostics-btn" type="button" class="secondary-btn" style="width: 100%; margin-top: 0.5rem;">Run Live Provider Diagnostics</button>
+                    <div id="provider-diagnostics-output" class="growth-list" style="margin-top: 0.75rem;"></div>
+                </details>
+
                 <details class="credentials-details" style="margin-top: 1rem;">
                     <summary>Autonomous Autopilot Autoposting</summary>
                     <div class="form-toggle-group" style="margin-top: 0.5rem;">
@@ -1298,7 +1704,12 @@
                         <label for="autonomous-video-engine">Autopilot Video Render Engine</label>
                         <select id="autonomous-video-engine" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
                             <option value="google_veo">Google Veo 3.1 (Cinematic)</option>
+                            <option value="google_veo_lite">Google Veo 3.1 Lite (Lower Cost)</option>
                             <option value="google_veo_fast">Google Veo 3.1 Fast</option>
+                            <option value="fal_hailuo_23">FAL Hailuo 2.3 Standard (Budget)</option>
+                            <option value="fal_hailuo_02">FAL Hailuo 02 Standard (Lowest Cost)</option>
+                            <option value="fal_seedance_fast">FAL Seedance Fast (Social)</option>
+                            <option value="fal_ltx_fast">FAL LTX Video 2.0 Fast</option>
                             <option value="runway_gen3">Runway Gen-3 (Alpha Turbo / Gen-4.5)</option>
                         </select>
                     </div>
@@ -1306,9 +1717,44 @@
                         <label for="autonomous-video-duration">Autopilot Video Duration</label>
                         <select id="autonomous-video-duration" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
                             <option value="5">5 seconds (Quick Preview)</option>
-                            <option value="10">10 seconds (Single Scene - Runway Only)</option>
+                            <option value="6">6 seconds (FAL Standard)</option>
+                            <option value="8">8 seconds (FAL LTX)</option>
+                            <option value="10">10 seconds</option>
+                            <option value="12">12 seconds (Seedance / LTX)</option>
+                            <option value="14">14 seconds (FAL LTX)</option>
+                            <option value="16">16 seconds (FAL LTX)</option>
+                            <option value="18">18 seconds (FAL LTX)</option>
+                            <option value="20">20 seconds (FAL LTX Max)</option>
                             <option value="30">30 seconds (Cinematic Cut - Runway Only)</option>
                         </select>
+                    </div>
+                    <div class="form-toggle-group" style="margin-top: 0.75rem;">
+                        <label for="viral-template-enabled">Viral Template Packaging</label>
+                        <input type="checkbox" id="viral-template-enabled">
+                        <span class="toggle-help">Applies a reusable 9:16 social template to Autopilot videos.</span>
+                    </div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.6rem; margin-top:0.5rem;">
+                        <div class="input-group">
+                            <label for="viral-template-style">Template</label>
+                            <select id="viral-template-style" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
+                                <option value="hook_burst">Hook Burst</option>
+                                <option value="cinematic_stack">Cinematic Stack</option>
+                                <option value="trend_radar">Trend Radar</option>
+                                <option value="documentary_interview">Documentary Interview</option>
+                                <option value="then_vs_now">Then vs. Now</option>
+                                <option value="movie_star_entrance">Movie Star Entrance</option>
+                                <option value="meme_master_reaction">Meme Master Reaction</option>
+                                <option value="summer_schedule_loop">Summer Schedule Loop</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label for="viral-template-quality">Quality</label>
+                            <select id="viral-template-quality" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
+                                <option value="draft">Draft</option>
+                                <option value="standard">Standard</option>
+                                <option value="high">High</option>
+                            </select>
+                        </div>
                     </div>
                 </details>
             </div>

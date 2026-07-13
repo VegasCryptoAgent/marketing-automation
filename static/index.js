@@ -64,6 +64,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const mockModeCheck = document.getElementById("mock-mode");
     const geminiKeyInput = document.getElementById("gemini-key");
     const runwayKeyInput = document.getElementById("runway-key");
+    const falKeyInput = document.getElementById("fal-key");
     const brandVoiceInput = document.getElementById("brand-voice-input");
     const twConsumerKey = document.getElementById("tw-consumer-key");
     const twConsumerSecret = document.getElementById("tw-consumer-secret");
@@ -74,9 +75,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Toast
     const toast = document.getElementById("toast");
+    const authOverlay = document.getElementById("auth-overlay");
+    const authForm = document.getElementById("auth-form");
+    const authPassword = document.getElementById("auth-password");
+    const authError = document.getElementById("auth-error");
 
     // Load configurations initially
-    fetchSettings();
+    checkAuth();
 
     /* ==========================================================================
        SETTINGS & MODAL
@@ -106,6 +111,59 @@ document.addEventListener("DOMContentLoaded", () => {
         }, 3000);
     }
 
+    function showAuth(message = "") {
+        if (!authOverlay) return;
+        authOverlay.classList.remove("hidden");
+        if (authError) authError.textContent = message;
+        if (authPassword) authPassword.focus();
+    }
+
+    function hideAuth() {
+        if (authOverlay) authOverlay.classList.add("hidden");
+        if (authPassword) authPassword.value = "";
+        if (authError) authError.textContent = "";
+    }
+
+    function checkAuth() {
+        fetch("/api/auth/status")
+            .then(res => res.json())
+            .then(data => {
+                if (data.auth_required && !data.authenticated) {
+                    showAuth();
+                    return;
+                }
+                hideAuth();
+                fetchSettings();
+            })
+            .catch(() => showAuth("Could not check admin session."));
+    }
+
+    if (authForm) {
+        authForm.addEventListener("submit", (e) => {
+            e.preventDefault();
+            const btn = authForm.querySelector("button");
+            if (btn) btn.disabled = true;
+            fetch("/api/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password: authPassword.value })
+            })
+            .then(res => {
+                if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "Invalid password") });
+                return res.json();
+            })
+            .then(() => {
+                hideAuth();
+                fetchSettings();
+                fetchGrowthOS();
+            })
+            .catch(err => showAuth(err.message))
+            .finally(() => {
+                if (btn) btn.disabled = false;
+            });
+        });
+    }
+
     function updateDiagnosticBadges(data) {
         const setActive = (el, active) => {
             if (!el) return;
@@ -122,6 +180,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         setActive(document.getElementById("diag-gemini-status"), !!data.gemini_api_key);
         setActive(document.getElementById("diag-runway-status"), !!data.runway_api_key);
+        setActive(document.getElementById("diag-fal-status"), !!data.fal_api_key);
         setActive(document.getElementById("diag-twitter-status"), !!(data.twitter_consumer_key && data.twitter_consumer_secret && data.twitter_access_token && data.twitter_access_token_secret));
         setActive(document.getElementById("diag-linkedin-status"), !!data.linkedin_access_token);
         setActive(document.getElementById("diag-instagram-status"), !!(data.instagram_access_token && data.instagram_business_account_id));
@@ -129,16 +188,173 @@ document.addEventListener("DOMContentLoaded", () => {
         setActive(document.getElementById("diag-youtube-status"), !!(data.youtube_client_id && data.youtube_client_secret && data.youtube_refresh_token));
         setActive(document.getElementById("diag-facebook-status"), !!(data.facebook_page_access_token && data.facebook_page_id));
         setActive(document.getElementById("diag-threads-status"), !!(data.threads_access_token && data.threads_user_id));
+        setActive(document.getElementById("diag-report-email-status"), !!(data.report_email_to && ((data.report_email_provider === "resend" && data.resend_api_key && data.resend_from) || (data.report_email_provider !== "resend" && data.smtp_host))));
+    }
+
+    function setDiagnosticBadge(id, status) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const ready = status === "ready";
+        el.textContent = ready ? "LIVE" : "CHECK";
+        el.style.background = ready ? "rgba(40, 167, 69, 0.2)" : "rgba(255, 193, 7, 0.18)";
+        el.style.color = ready ? "#28a745" : "#ffc107";
+    }
+
+    function renderProviderDiagnostics(data) {
+        const diagnostics = data.diagnostics || {};
+        setDiagnosticBadge("diag-report-email-status", diagnostics.report_email?.status);
+        setDiagnosticBadge("diag-twitter-status", diagnostics.twitter_mentions?.status);
+        setDiagnosticBadge("diag-youtube-status", diagnostics.youtube_comments?.status);
+        setDiagnosticBadge("diag-instagram-status", diagnostics.postproxy?.status === "ready" && diagnostics.postproxy?.platforms?.includes("instagram") ? "ready" : diagnostics.postproxy?.status);
+
+        const output = document.getElementById("provider-diagnostics-output");
+        if (!output) return;
+        const rows = [
+            ["Report Email", diagnostics.report_email],
+            ["X Mentions", diagnostics.twitter_mentions],
+            ["YouTube Comments", diagnostics.youtube_comments],
+            ["PostProxy", diagnostics.postproxy]
+        ];
+        output.innerHTML = rows.map(([label, item]) => {
+            const status = item?.status || "unknown";
+            const message = item?.message || "";
+            const extras = [
+                item?.http_status ? `HTTP ${item.http_status}` : "",
+                Number.isFinite(item?.sample_count) ? `${item.sample_count} samples` : "",
+                item?.channel_title ? `Channel: ${item.channel_title}` : "",
+                item?.has_force_ssl_scope === true ? "force-ssl scope" : "",
+                item?.has_smtp_auth === true ? "SMTP auth set" : "",
+                item?.has_resend_key === true ? "Resend key set" : "",
+                item?.provider ? `Provider: ${item.provider}` : "",
+                item?.profile_group_id ? `Group: ${item.profile_group_id}` : "",
+                Number.isFinite(item?.profiles_count) ? `${item.profiles_count} profiles` : "",
+                Array.isArray(item?.platforms) ? item.platforms.join(", ") : ""
+            ].filter(Boolean).join(" · ");
+            return `<div class="growth-list-item"><strong>${label} · ${status}</strong><span>${escapeHtml(message)}</span>${extras ? `<p>${escapeHtml(extras)}</p>` : ""}</div>`;
+        }).join("");
+    }
+
+    function renderPostProxyProfiles(data) {
+        const output = document.getElementById("postproxy-profiles-output");
+        if (!output) return;
+        const profiles = data.profiles || [];
+        const groupId = data.profile_group_id || "";
+        const groupInput = document.getElementById("postproxy-profile-group-id");
+        if (groupInput && !groupInput.value && groupId) groupInput.value = groupId;
+        if (!profiles.length) {
+            output.innerHTML = `<div class="growth-list-item"><strong>No connected profiles</strong><span>Use a connect button above to authorize a social account.</span></div>`;
+            return;
+        }
+        output.innerHTML = profiles.map(profile => `
+            <div class="growth-list-item">
+                <strong>${escapeHtml(profile.platform)} · ${escapeHtml(profile.name)}</strong>
+                <span>${escapeHtml(profile.status)} · group ${escapeHtml(profile.profile_group_id || groupId)} · ${escapeHtml(profile.post_count || 0)} posts</span>
+                ${profile.expires_at ? `<p>Expires ${escapeHtml(shortDate(profile.expires_at))}</p>` : ""}
+            </div>
+        `).join("");
+    }
+
+    function refreshPostProxyProfiles() {
+        const btn = document.getElementById("postproxy-refresh-profiles-btn");
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = "Refreshing...";
+        }
+        return fetch("/api/postproxy/profiles")
+            .then(res => {
+                if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "PostProxy profile refresh failed") });
+                return res.json();
+            })
+            .then(data => {
+                renderPostProxyProfiles(data);
+                return data;
+            })
+            .catch(err => showToast(err.message, true))
+            .finally(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = "Refresh PostProxy Profiles";
+                }
+            });
+    }
+
+    function connectPostProxyPlatform(platform) {
+        fetch("/api/postproxy/connect", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                platform,
+                profile_group_id: document.getElementById("postproxy-profile-group-id")?.value || "",
+                redirect_url: window.location.origin + "/"
+            })
+        })
+        .then(res => {
+            if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "Could not start PostProxy connection") });
+            return res.json();
+        })
+        .then(data => {
+            if (data.already_connected) {
+                showToast(`PostProxy ${platform} is already connected.`);
+                refreshPostProxyProfiles();
+            } else if (data.url) {
+                window.open(data.url, "_blank", "noopener,noreferrer");
+                showToast(`PostProxy ${platform} connection opened.`);
+            } else {
+                showToast("PostProxy did not return a connection URL.", true);
+            }
+        })
+        .catch(err => showToast(err.message, true));
+    }
+
+    function fetchProviderDiagnostics() {
+        const btn = document.getElementById("provider-diagnostics-btn");
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = "Checking...";
+        }
+        return fetch("/api/provider-diagnostics")
+            .then(res => {
+                if (!res.ok) throw new Error("Provider diagnostics failed.");
+                return res.json();
+            })
+            .then(data => {
+                renderProviderDiagnostics(data);
+                return data;
+            })
+            .catch(err => {
+                showToast(err.message || "Provider diagnostics failed.", true);
+            })
+            .finally(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = "Run Live Provider Diagnostics";
+                }
+            });
     }
 
     function fetchSettings() {
         fetch("/api/settings")
-            .then(res => res.json())
+            .then(res => {
+                if (res.status === 401) {
+                    showAuth();
+                    throw new Error("Authentication required.");
+                }
+                return res.json();
+            })
             .then(data => {
+                const setChecked = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (el) el.checked = !!value;
+                };
+                const setValue = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (el) el.value = value;
+                };
                 // Modal inputs
                 mockModeCheck.checked = data.mock_mode;
                 geminiKeyInput.value = data.gemini_api_key;
                 runwayKeyInput.value = data.runway_api_key || "";
+                if (falKeyInput) falKeyInput.value = data.fal_api_key || "";
                 brandVoiceInput.value = data.brand_voice;
                 twConsumerKey.value = data.twitter_consumer_key;
                 twConsumerSecret.value = data.twitter_consumer_secret;
@@ -158,9 +374,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.getElementById("auto-platform-youtube").checked = platforms.includes("youtube");
                 document.getElementById("auto-platform-facebook").checked = platforms.includes("facebook");
                 document.getElementById("auto-platform-threads").checked = platforms.includes("threads");
-                document.getElementById("autonomous-video-engine").value = data.autonomous_video_engine || "runway_gen3";
+                document.getElementById("autonomous-video-engine").value = data.autonomous_video_engine || "fal_hailuo_23";
                 document.getElementById("autonomous-video-duration").value = data.autonomous_video_duration || 10;
                 document.getElementById("require-autopilot-approval").checked = data.require_autopilot_approval !== false;
+                setChecked("viral-template-enabled", data.viral_template_enabled || false);
+                setValue("viral-template-style", data.viral_template_style || "hook_burst");
+                setValue("viral-template-quality", data.viral_template_quality || "standard");
 
                 // Additional platform credentials (modal)
                 document.getElementById("public-base-url").value = data.public_base_url || "";
@@ -180,11 +399,26 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.getElementById("youtube-refresh-token").value = data.youtube_refresh_token || "";
                 document.getElementById("threads-access-token").value = data.threads_access_token || "";
                 document.getElementById("threads-user-id").value = data.threads_user_id || "";
+                setValue("report-email-provider", data.report_email_provider || "resend");
+                setValue("report-email-to", data.report_email_to || "");
+                setValue("resend-api-key", data.resend_api_key || "");
+                setValue("resend-from", data.resend_from || "");
+                setChecked("postproxy-enabled", data.postproxy_enabled || false);
+                setValue("postproxy-api-key", data.postproxy_api_key || "");
+                setValue("postproxy-profile-group-id", data.postproxy_profile_group_id || "");
+                setValue("postproxy-daily-publish-limit", data.postproxy_daily_publish_limit || 2);
+                setValue("smtp-host", data.smtp_host || "");
+                setValue("smtp-port", data.smtp_port || 587);
+                setValue("smtp-user", data.smtp_user || "");
+                setValue("smtp-password", data.smtp_password || "");
+                setValue("smtp-from", data.smtp_from || "");
+                setChecked("smtp-tls", data.smtp_tls !== false);
 
                 // Cockpit inputs
                 document.getElementById("cockpit-mock-mode").checked = data.mock_mode;
                 document.getElementById("cockpit-gemini-key").value = data.gemini_api_key || "";
                 document.getElementById("cockpit-runway-key").value = data.runway_api_key || "";
+                document.getElementById("cockpit-fal-key").value = data.fal_api_key || "";
                 document.getElementById("cockpit-brand-voice").value = data.brand_voice || "";
 
                 document.getElementById("cockpit-autonomous-posting").checked = data.autonomous_posting || false;
@@ -196,15 +430,21 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.getElementById("cockpit-auto-platform-youtube").checked = platforms.includes("youtube");
                 document.getElementById("cockpit-auto-platform-facebook").checked = platforms.includes("facebook");
                 document.getElementById("cockpit-auto-platform-threads").checked = platforms.includes("threads");
-                document.getElementById("cockpit-autonomous-video-engine").value = data.autonomous_video_engine || "runway_gen3";
+                document.getElementById("cockpit-autonomous-video-engine").value = data.autonomous_video_engine || "fal_hailuo_23";
                 document.getElementById("cockpit-autonomous-video-duration").value = data.autonomous_video_duration || 10;
                 document.getElementById("cockpit-require-approval").checked = data.require_autopilot_approval !== false;
+                setChecked("cockpit-viral-template-enabled", data.viral_template_enabled || false);
+                setValue("cockpit-viral-template-style", data.viral_template_style || "hook_burst");
+                setValue("cockpit-viral-template-quality", data.viral_template_quality || "standard");
+                setValue("cockpit-postproxy-daily-publish-limit", data.postproxy_daily_publish_limit || 2);
 
                 // Wizard toggle
                 document.getElementById("wizard-autonomous-posting").checked = data.autonomous_posting || false;
 
                 // Update health diagnostics
                 updateDiagnosticBadges(data);
+                fetchProviderDiagnostics();
+                if (data.postproxy_api_key) refreshPostProxyProfiles();
             })
             .catch(err => {
                 console.error("Failed to load settings:", err);
@@ -240,9 +480,35 @@ document.addEventListener("DOMContentLoaded", () => {
             youtube_client_secret: document.getElementById("youtube-client-secret").value,
             youtube_refresh_token: document.getElementById("youtube-refresh-token").value,
             threads_access_token: document.getElementById("threads-access-token").value,
-            threads_user_id: document.getElementById("threads-user-id").value
+            threads_user_id: document.getElementById("threads-user-id").value,
+            report_email_provider: document.getElementById("report-email-provider").value,
+            report_email_to: document.getElementById("report-email-to").value,
+            resend_api_key: document.getElementById("resend-api-key").value,
+            resend_from: document.getElementById("resend-from").value,
+            postproxy_enabled: document.getElementById("postproxy-enabled").checked,
+            postproxy_api_key: document.getElementById("postproxy-api-key").value,
+            postproxy_profile_group_id: document.getElementById("postproxy-profile-group-id").value,
+            postproxy_daily_publish_limit: Math.max(1, parseInt(document.getElementById("postproxy-daily-publish-limit").value || "2", 10)),
+            smtp_host: document.getElementById("smtp-host").value,
+            smtp_port: parseInt(document.getElementById("smtp-port").value || "587", 10),
+            smtp_user: document.getElementById("smtp-user").value,
+            smtp_password: document.getElementById("smtp-password").value,
+            smtp_from: document.getElementById("smtp-from").value,
+            smtp_tls: document.getElementById("smtp-tls").checked
         };
     }
+
+    const providerDiagnosticsBtn = document.getElementById("provider-diagnostics-btn");
+    if (providerDiagnosticsBtn) {
+        providerDiagnosticsBtn.addEventListener("click", fetchProviderDiagnostics);
+    }
+    const postProxyRefreshBtn = document.getElementById("postproxy-refresh-profiles-btn");
+    if (postProxyRefreshBtn) {
+        postProxyRefreshBtn.addEventListener("click", refreshPostProxyProfiles);
+    }
+    document.querySelectorAll(".postproxy-connect-btn").forEach(btn => {
+        btn.addEventListener("click", () => connectPostProxyPlatform(btn.dataset.platform));
+    });
 
     saveSettingsBtn.addEventListener("click", () => {
         const autoPlatforms = collectAutoPlatforms("auto-platform");
@@ -250,6 +516,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const payload = {
             gemini_api_key: geminiKeyInput.value,
             runway_api_key: runwayKeyInput.value,
+            fal_api_key: falKeyInput ? falKeyInput.value : "",
             brand_voice: brandVoiceInput.value,
             twitter_consumer_key: twConsumerKey.value,
             twitter_consumer_secret: twConsumerSecret.value,
@@ -264,6 +531,9 @@ document.addEventListener("DOMContentLoaded", () => {
             autonomous_video_engine: document.getElementById("autonomous-video-engine").value,
             autonomous_video_duration: parseInt(document.getElementById("autonomous-video-duration").value, 10),
             require_autopilot_approval: document.getElementById("require-autopilot-approval").checked,
+            viral_template_enabled: document.getElementById("viral-template-enabled").checked,
+            viral_template_style: document.getElementById("viral-template-style").value,
+            viral_template_quality: document.getElementById("viral-template-quality").value,
             ...collectAdditionalPlatformCreds()
         };
 
@@ -671,17 +941,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const navCampaigns = document.getElementById("nav-campaigns");
     const navAutomation = document.getElementById("nav-automation");
     const navRepurposer = document.getElementById("nav-repurposer");
+    const navGrowth = document.getElementById("nav-growth");
     
     const pipelineView = document.getElementById("pipeline-view");
     const campaignsView = document.getElementById("campaigns-view");
     const automationView = document.getElementById("automation-view");
     const repurposerView = document.getElementById("repurposer-view");
+    const growthView = document.getElementById("growth-view");
 
     navPipeline.addEventListener("click", () => {
         navPipeline.classList.add("active");
         navCampaigns.classList.remove("active");
         navAutomation.classList.remove("active");
         if (navRepurposer) navRepurposer.classList.remove("active");
+        if (navGrowth) navGrowth.classList.remove("active");
         pipelineView.scrollIntoView({ behavior: "smooth", block: "start" });
     });
 
@@ -690,6 +963,7 @@ document.addEventListener("DOMContentLoaded", () => {
         navPipeline.classList.remove("active");
         navAutomation.classList.remove("active");
         if (navRepurposer) navRepurposer.classList.remove("active");
+        if (navGrowth) navGrowth.classList.remove("active");
         campaignsView.scrollIntoView({ behavior: "smooth", block: "start" });
         loadCampaigns(); // Fetch campaigns JSON if not loaded
     });
@@ -699,6 +973,7 @@ document.addEventListener("DOMContentLoaded", () => {
         navPipeline.classList.remove("active");
         navCampaigns.classList.remove("active");
         if (navRepurposer) navRepurposer.classList.remove("active");
+        if (navGrowth) navGrowth.classList.remove("active");
         automationView.scrollIntoView({ behavior: "smooth", block: "start" });
         fetchSettings(); // Refresh diagnostics and input states
     });
@@ -709,7 +984,20 @@ document.addEventListener("DOMContentLoaded", () => {
             navPipeline.classList.remove("active");
             navCampaigns.classList.remove("active");
             navAutomation.classList.remove("active");
+            if (navGrowth) navGrowth.classList.remove("active");
             repurposerView.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+    }
+
+    if (navGrowth) {
+        navGrowth.addEventListener("click", () => {
+            navGrowth.classList.add("active");
+            navPipeline.classList.remove("active");
+            navCampaigns.classList.remove("active");
+            navAutomation.classList.remove("active");
+            if (navRepurposer) navRepurposer.classList.remove("active");
+            growthView.scrollIntoView({ behavior: "smooth", block: "start" });
+            fetchGrowthOS();
         });
     }
 
@@ -972,6 +1260,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let trendActiveMode = "recreate"; // "recreate" or "repurpose"
     let currentSelectedTrend = null;
     let trendOriginalVideoMap = {};
+    let trendSourceVideoMap = {};
+    let trendTemplateMap = {};
 
     const scannerTriggerBtn = document.getElementById("scanner-trigger-btn");
     const scannerProgressCard = document.getElementById("scanner-progress-card");
@@ -1151,10 +1441,9 @@ document.addEventListener("DOMContentLoaded", () => {
         trendAuthorTag.textContent = `Creator: ${trend.author}`;
         trendMetricsTag.textContent = `Virality: ${trend.viral_metrics}`;
         let rawUrl = trend.url || "";
-        // If the model returned a broken/placeholder link, point the link at a search for the
-        // post on ITS OWN platform instead of silently substituting another video.
         const isMockPattern = (
             !rawUrl.startsWith("http") ||
+            rawUrl.includes("google.com/search") ||
             rawUrl.includes("examplecyber") ||
             rawUrl.includes("12345") ||
             rawUrl.includes("abcdef") ||
@@ -1163,17 +1452,11 @@ document.addEventListener("DOMContentLoaded", () => {
             rawUrl.includes("AIVoyager")
         );
         if (isMockPattern) {
-            console.log("Unverifiable trend URL — linking to a search for the post on its source platform.");
-            const platformLower = (trend.platform || "").toLowerCase();
-            const domainMap = { instagram: "instagram.com", tiktok: "tiktok.com", linkedin: "linkedin.com", twitter: "x.com", x: "x.com" };
-            const domain = Object.keys(domainMap).find(k => platformLower.includes(k));
-            if (domain) {
-                rawUrl = "https://www.google.com/search?q=" + encodeURIComponent(`site:${domainMap[domain]} ${trend.title || ""}`);
-            } else {
-                rawUrl = "https://www.youtube.com/results?search_query=" + encodeURIComponent(trend.title || "");
-            }
+            rawUrl = "";
         }
-        trendOriginalLinkAnchor.href = rawUrl;
+        trendOriginalLinkAnchor.href = rawUrl || "#";
+        trendOriginalLinkAnchor.style.pointerEvents = rawUrl ? "auto" : "none";
+        trendOriginalLinkAnchor.style.opacity = rawUrl ? "1" : "0.45";
         trendOriginalConcept.textContent = trend.original_concept;
         trendStudioTwist.textContent = trend.studio_adaptation_concept;
         
@@ -1463,6 +1746,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const trendVideoPlayerContainer = document.getElementById("trend-video-player-container");
     const trendVideoPlayer = document.getElementById("trend-video-player");
     const trendDownloadVideoBtn = document.getElementById("trend-download-video-btn");
+    const trendApplyTemplateBtn = document.getElementById("trend-apply-template-btn");
+    const trendTemplateStyleSelect = document.getElementById("trend-template-style");
+    const trendTemplateLoading = document.getElementById("trend-template-loading");
+    const trendTemplateStatusMsg = document.getElementById("trend-template-status-msg");
 
     // Video Generation Elements - Concepts
     const conceptGenerateVideoBtn = document.getElementById("concept-generate-video-btn");
@@ -1474,6 +1761,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const conceptDownloadVideoBtn = document.getElementById("concept-download-video-btn");
 
     function resetTrendVideoUI(trendId) {
+        setTrendTemplateLoading(false);
         if (trendVideoMap[trendId]) {
             trendVideoPlaceholder.classList.add("hidden");
             trendVideoLoading.classList.add("hidden");
@@ -1509,26 +1797,51 @@ document.addEventListener("DOMContentLoaded", () => {
     const trendDurationSelect = document.getElementById("trend-video-duration");
     const conceptEngineSelect = document.getElementById("concept-video-engine");
     const conceptDurationSelect = document.getElementById("concept-video-duration");
+    const autopilotEngineSelect = document.getElementById("autonomous-video-engine");
+    const autopilotDurationSelect = document.getElementById("autonomous-video-duration");
+    const cockpitAutopilotEngineSelect = document.getElementById("cockpit-autonomous-video-engine");
+    const cockpitAutopilotDurationSelect = document.getElementById("cockpit-autonomous-video-duration");
 
     function updateDurationOptions(engineSelect, durationSelect) {
-        const isRunway = engineSelect.value === "runway_gen3";
+        const engine = engineSelect.value;
+        const isRunway = engine === "runway_gen3";
+        const isHailuo = engine === "fal_hailuo_23" || engine === "fal_hailuo_02";
+        const isSeedance = engine === "fal_seedance_fast";
+        const isLtx = engine === "fal_ltx_fast";
         const options = durationSelect.querySelectorAll("option");
         options.forEach(opt => {
-            if (opt.value === "10" || opt.value === "30") {
-                if (isRunway) {
-                    opt.removeAttribute("disabled");
-                    opt.textContent = opt.textContent.replace(" - Runway Only", "");
-                } else {
-                    opt.setAttribute("disabled", "true");
-                    if (!opt.textContent.includes(" - Runway Only")) {
-                        opt.textContent += " - Runway Only";
-                    }
-                }
+            const value = opt.value;
+            const enabled = (
+                (isRunway && ["5", "10", "30"].includes(value)) ||
+                (isHailuo && ["6", "10"].includes(value)) ||
+                (isSeedance && ["5", "6", "10", "12"].includes(value)) ||
+                (isLtx && ["6", "8", "10", "12", "14", "16", "18", "20"].includes(value)) ||
+                (!isRunway && !isHailuo && !isSeedance && !isLtx && value === "5")
+            );
+            if (enabled) {
+                opt.removeAttribute("disabled");
+            } else {
+                opt.setAttribute("disabled", "true");
             }
         });
-        if (!isRunway && (durationSelect.value === "10" || durationSelect.value === "30")) {
-            durationSelect.value = "5";
+        if (durationSelect.selectedOptions[0] && durationSelect.selectedOptions[0].disabled) {
+            const firstEnabled = Array.from(options).find(opt => !opt.disabled);
+            if (firstEnabled) durationSelect.value = firstEnabled.value;
         }
+    }
+
+    function getVideoEngineLabel(engine) {
+        const labels = {
+            google_veo: "Google Veo 3.1",
+            google_veo_lite: "Google Veo 3.1 Lite",
+            google_veo_fast: "Google Veo 3.1 Fast",
+            runway_gen3: "Runway Gen-4.5",
+            fal_hailuo_23: "FAL Hailuo 2.3",
+            fal_hailuo_02: "FAL Hailuo 02",
+            fal_seedance_fast: "FAL Seedance Fast",
+            fal_ltx_fast: "FAL LTX Fast"
+        };
+        return labels[engine] || "selected engine";
     }
 
     if (trendEngineSelect && trendDurationSelect) {
@@ -1539,10 +1852,17 @@ document.addEventListener("DOMContentLoaded", () => {
         conceptEngineSelect.addEventListener("change", () => updateDurationOptions(conceptEngineSelect, conceptDurationSelect));
         updateDurationOptions(conceptEngineSelect, conceptDurationSelect);
     }
+    if (autopilotEngineSelect && autopilotDurationSelect) {
+        autopilotEngineSelect.addEventListener("change", () => updateDurationOptions(autopilotEngineSelect, autopilotDurationSelect));
+        updateDurationOptions(autopilotEngineSelect, autopilotDurationSelect);
+    }
+    if (cockpitAutopilotEngineSelect && cockpitAutopilotDurationSelect) {
+        cockpitAutopilotEngineSelect.addEventListener("change", () => updateDurationOptions(cockpitAutopilotEngineSelect, cockpitAutopilotDurationSelect));
+        updateDurationOptions(cockpitAutopilotEngineSelect, cockpitAutopilotDurationSelect);
+    }
 
-    trendGenerateVideoBtn.addEventListener("click", () => {
+    function startTrendVideoGeneration(trendId, onSuccess) {
         const prompt = trendVideoPrompt.value;
-        const trendId = trendTitleHeader.textContent;
         const engine = document.getElementById("trend-video-engine").value;
         const duration = parseInt(document.getElementById("trend-video-duration").value, 10);
         if (!prompt) return;
@@ -1550,7 +1870,7 @@ document.addEventListener("DOMContentLoaded", () => {
         trendVideoPlaceholder.classList.add("hidden");
         trendVideoLoading.classList.remove("hidden");
         
-        const engineName = engine === "runway_gen3" ? "Runway Gen-3..." : "Google Veo 3.1...";
+        const engineName = getVideoEngineLabel(engine);
         trendVideoStatusMsg.textContent = `Connecting to ${engineName}`;
 
         fetch("/api/generate-video", {
@@ -1563,12 +1883,17 @@ document.addEventListener("DOMContentLoaded", () => {
             return res.json();
         })
         .then(data => {
-            pollVideoStatus(data.job_id, "trend", trendId);
+            pollVideoStatus(data.job_id, "trend", trendId, onSuccess);
         })
         .catch(err => {
             showToast(err.message || "Failed to trigger video generation", true);
             resetTrendVideoUI(trendId);
         });
+    }
+
+    trendGenerateVideoBtn.addEventListener("click", () => {
+        const trendId = trendTitleHeader.textContent;
+        startTrendVideoGeneration(trendId);
     });
 
     conceptGenerateVideoBtn.addEventListener("click", () => {
@@ -1582,7 +1907,7 @@ document.addEventListener("DOMContentLoaded", () => {
         conceptVideoPlaceholder.classList.add("hidden");
         conceptVideoLoading.classList.remove("hidden");
         
-        const engineName = engine === "runway_gen3" ? "Runway Gen-3..." : "Google Veo 3.1...";
+        const engineName = getVideoEngineLabel(engine);
         conceptVideoStatusMsg.textContent = `Connecting to ${engineName}`;
 
         fetch("/api/generate-video", {
@@ -1677,6 +2002,116 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    function setTrendTemplateLoading(isLoading, message) {
+        if (!trendTemplateLoading || !trendApplyTemplateBtn) return;
+        trendTemplateLoading.classList.toggle("hidden", !isLoading);
+        trendApplyTemplateBtn.disabled = isLoading;
+        trendApplyTemplateBtn.textContent = isLoading ? "Applying..." : "Apply template";
+        if (message && trendTemplateStatusMsg) {
+            trendTemplateStatusMsg.textContent = message;
+        }
+    }
+
+    function applyTemplateToTrend(trendId, videoPath) {
+        if (!currentSelectedTrend) {
+            showToast("Select a trend first.", true);
+            return;
+        }
+        if (!videoPath) {
+            showToast("Generate a trend video before applying a template.", true);
+            return;
+        }
+        if (!trendSourceVideoMap[trendId]) {
+            trendSourceVideoMap[trendId] = videoPath;
+        }
+
+        const templateId = trendTemplateStyleSelect ? trendTemplateStyleSelect.value : "hook_burst";
+        const subtitleParts = [
+            currentSelectedTrend.platform || "Trend scan",
+            currentSelectedTrend.viral_metrics || "",
+            currentSelectedTrend.author ? `by ${currentSelectedTrend.author}` : ""
+        ].filter(Boolean);
+
+        setTrendTemplateLoading(true, "Queuing HyperFrames template render...");
+
+        fetch("/api/apply-template", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                video_path: videoPath,
+                template_id: templateId,
+                title: currentSelectedTrend.title || trendId,
+                subtitle: subtitleParts.join(" • ")
+            })
+        })
+        .then(res => {
+            if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "Failed to start template render") });
+            return res.json();
+        })
+        .then(data => {
+            pollTrendTemplateStatus(data.job_id, trendId);
+        })
+        .catch(err => {
+            setTrendTemplateLoading(false);
+            showToast(err.message || "Failed to apply template", true);
+        });
+    }
+
+    if (trendApplyTemplateBtn) {
+        trendApplyTemplateBtn.addEventListener("click", () => {
+            if (!currentSelectedTrend) { showToast("Select a trend first.", true); return; }
+            const trendId = currentSelectedTrend.title || trendTitleHeader.textContent;
+            const videoPath = trendSourceVideoMap[trendId] || trendVideoMap[trendId];
+
+            if (videoPath) {
+                applyTemplateToTrend(trendId, videoPath);
+                return;
+            }
+
+            showToast("No rendered trend video yet. Generating the preview first...");
+            setTrendTemplateLoading(true, "Generating preview video first...");
+            startTrendVideoGeneration(trendId, renderedPath => {
+                applyTemplateToTrend(trendId, renderedPath);
+            });
+        });
+    }
+
+    function pollTrendTemplateStatus(jobId, trendId) {
+        const interval = setInterval(() => {
+            fetch(`/api/template-status/${jobId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === "PENDING" || data.status === "PROCESSING") {
+                        setTrendTemplateLoading(true, `${data.message} (${data.progress}%)`);
+                    } else if (data.status === "SUCCESS") {
+                        clearInterval(interval);
+                        const videoPath = data.result.video_path;
+                        trendVideoMap[trendId] = videoPath;
+                        trendTemplateMap[trendId] = {
+                            template_id: data.result.template_id,
+                            template_label: data.result.template_label,
+                            video_path: videoPath
+                        };
+                        setTrendTemplateLoading(false);
+                        showToast(`${data.result.template_label || "Template"} applied to selected trend.`);
+                        if (trendTitleHeader.textContent === trendId) {
+                            resetTrendVideoUI(trendId);
+                        }
+                    } else if (data.status === "FAILED") {
+                        clearInterval(interval);
+                        setTrendTemplateLoading(false);
+                        showToast(data.message || "Template render failed", true);
+                    }
+                })
+                .catch(err => {
+                    clearInterval(interval);
+                    console.error("Error polling template status:", err);
+                    setTrendTemplateLoading(false);
+                    showToast("Template render polling error.", true);
+                });
+        }, 3000);
+    }
+
     function pollVariantsStatus(jobId) {
         const interval = setInterval(() => {
             fetch(`/api/video-variants-status/${jobId}`)
@@ -1718,7 +2153,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }, 4000);
     }
 
-    function pollVideoStatus(jobId, type, id) {
+    function pollVideoStatus(jobId, type, id, onSuccess) {
         const interval = setInterval(() => {
             fetch(`/api/video-status/${jobId}`)
                 .then(res => res.json())
@@ -1732,10 +2167,15 @@ document.addEventListener("DOMContentLoaded", () => {
                         const videoPath = data.result.video_path;
                         
                         if (type === "trend") {
+                            trendSourceVideoMap[id] = videoPath;
+                            trendTemplateMap[id] = null;
                             trendVideoMap[id] = videoPath;
                             showToast("Video rendered successfully!");
                             if (trendTitleHeader.textContent === id) {
                                 resetTrendVideoUI(id);
+                            }
+                            if (typeof onSuccess === "function") {
+                                onSuccess(videoPath);
                             }
                         } else {
                             conceptVideoMap[id] = videoPath;
@@ -1750,6 +2190,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         clearInterval(interval);
                         showToast(data.message || "Video generation failed", true);
                         if (type === "trend") {
+                            setTrendTemplateLoading(false);
                             resetTrendVideoUI(id);
                         } else {
                             resetConceptVideoUI(id);
@@ -2330,6 +2771,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const payload = {
                 gemini_api_key: document.getElementById("cockpit-gemini-key").value,
                 runway_api_key: document.getElementById("cockpit-runway-key").value,
+                fal_api_key: document.getElementById("cockpit-fal-key").value,
                 brand_voice: document.getElementById("cockpit-brand-voice").value,
                 twitter_consumer_key: twConsumerKey.value,
                 twitter_consumer_secret: twConsumerSecret.value,
@@ -2344,7 +2786,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 autonomous_video_engine: document.getElementById("cockpit-autonomous-video-engine").value,
                 autonomous_video_duration: parseInt(document.getElementById("cockpit-autonomous-video-duration").value, 10),
                 require_autopilot_approval: document.getElementById("cockpit-require-approval").checked,
-                ...collectAdditionalPlatformCreds()
+                viral_template_enabled: document.getElementById("cockpit-viral-template-enabled").checked,
+                viral_template_style: document.getElementById("cockpit-viral-template-style").value,
+                viral_template_quality: document.getElementById("cockpit-viral-template-quality").value,
+                ...collectAdditionalPlatformCreds(),
+                postproxy_daily_publish_limit: Math.max(1, parseInt(document.getElementById("cockpit-postproxy-daily-publish-limit").value || "2", 10))
             };
 
             cockpitSaveBtn.disabled = true;
@@ -2785,11 +3231,377 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    /* ==========================================================================
+       GROWTH OS COMMAND CENTER
+       ========================================================================== */
+    let growthState = null;
+    let growthPollTimer = null;
+    const byId = (id) => document.getElementById(id);
+    const growthList = (id, items, renderer, emptyText = "No items yet.") => {
+        const el = byId(id);
+        if (!el) return;
+        if (!items || items.length === 0) {
+            el.innerHTML = `<div class="growth-empty">${escapeHtml(emptyText)}</div>`;
+            return;
+        }
+        el.innerHTML = items.map(renderer).join("");
+    };
+    const shortDate = (val) => {
+        if (!val) return "";
+        try {
+            return new Date(val).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        } catch {
+            return String(val).slice(0, 16);
+        }
+    };
+    const postGrowthItem = (collection, item) => {
+        return fetch("/api/growth-os/item", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ collection, item })
+        }).then(res => {
+            if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "Growth OS update failed") });
+            return res.json();
+        });
+    };
+
+    function renderGrowthOS(data) {
+        growthState = data;
+        if (byId("growth-stat-inbox")) byId("growth-stat-inbox").textContent = (data.unified_inbox || []).length;
+        if (byId("growth-stat-calendar")) byId("growth-stat-calendar").textContent = (data.calendar || []).length;
+        if (byId("growth-stat-assets")) byId("growth-stat-assets").textContent = (data.assets || []).length;
+        if (byId("growth-stat-besttime")) byId("growth-stat-besttime").textContent = data.best_time?.hour !== null && data.best_time?.hour !== undefined ? `${data.best_time.hour}:00` : "--";
+
+        growthList("growth-inbox-list", data.unified_inbox, item => `
+            <div class="growth-list-item">
+                <strong>${escapeHtml(item.platform || item.source_platform || "Inbox")} · @${escapeHtml(item.source_author || "unknown")}</strong>
+                <p>${escapeHtml(item.source_text || "")}</p>
+                <span>${escapeHtml(item.drafted_reply || "AI reply will appear after refresh.")}</span>
+            </div>`, "No active replies or DMs queued.");
+
+        growthList("growth-calendar-list", data.calendar, item => `
+            <div class="growth-list-item">
+                <strong>${escapeHtml(item.title || "Scheduled post")}</strong>
+                <span>${escapeHtml(item.platform || "platform")} · ${escapeHtml(item.status || "draft")} · ${escapeHtml(shortDate(item.scheduled_time))}</span>
+            </div>`, "No calendar items yet.");
+
+        growthList("growth-asset-list", data.assets, item => {
+            const media = item.type === "image"
+                ? `<img class="growth-thumb" src="${escapeHtml(item.url)}" alt="">`
+                : `<video class="growth-thumb" src="${escapeHtml(item.url)}" muted></video>`;
+            return `<a class="growth-list-item" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">
+                ${media}
+                <span><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.type)} · ${Math.round((item.size || 0) / 1024)} KB</span></span>
+            </a>`;
+        }, "Generated videos and images will appear here.");
+
+        const listeningRows = [
+            ...((data.listening_topics || []).map(item => ({ kind: "topic", ...item }))),
+            ...((data.listening_signals || []).map(item => ({ kind: "signal", ...item })))
+        ];
+        growthList("growth-listening-list", listeningRows, item => item.kind === "signal" ? `
+            <div class="growth-list-item"><strong>${escapeHtml(item.topic || item.platform || "Live signal")}</strong><span>${escapeHtml(item.platform || "")} · ${escapeHtml(item.metric || "")}</span><p>${escapeHtml(item.summary || "")}</p>${item.url ? `<a class="growth-link" href="${escapeHtml(item.url)}" target="_blank" rel="noreferrer">Open source</a>` : ""}</div>` : `
+            <div class="growth-list-item"><strong>${escapeHtml(item.keyword)}</strong><span>${escapeHtml(item.type || "keyword")} · ${escapeHtml(item.priority || "medium")} · ${escapeHtml(item.status || "active")}</span></div>`, "Add a topic, then run live refresh.");
+
+        growthList("growth-competitor-list", data.competitors, item => `
+            <div class="growth-list-item"><strong>${escapeHtml(item.name || item.handle)}</strong><span>${escapeHtml(item.handle || "")} · ${escapeHtml(item.posting_frequency || "frequency TBD")} · ${escapeHtml(item.engagement_velocity || "velocity TBD")}</span><p>${escapeHtml((item.format_patterns || []).join(", "))}</p></div>`);
+
+        growthList("growth-evergreen-list", data.evergreen_buckets, item => `
+            <div class="growth-list-item"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.cadence)} · recycle every ${escapeHtml(item.recycle_days)} days · ${(item.items || []).length} items</span></div>`);
+
+        const brand = data.brand_kit || {};
+        if (byId("growth-brand-colors")) byId("growth-brand-colors").value = (brand.colors || []).join(", ");
+        if (byId("growth-brand-logo")) byId("growth-brand-logo").value = brand.logo_url || "";
+        if (byId("growth-brand-tone")) byId("growth-brand-tone").value = (brand.tone_presets || []).join(", ");
+        growthList("growth-brand-rules", Object.entries(brand.template_rules || {}).map(([name, rule]) => ({ name, rule })), item => `
+            <div class="growth-list-item"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.rule)}</span></div>`, "No template rules yet.");
+
+        growthList("growth-abtest-list", data.ab_tests, item => `
+            <div class="growth-list-item"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.metric || "engagement")} · ${escapeHtml(item.status || "draft")}</span><p>${escapeHtml((item.variants || []).join(" vs "))}</p></div>`);
+
+        growthList("growth-crm-list", data.crm_contacts, item => `
+            <div class="growth-list-item"><strong>${escapeHtml(item.name || item.handle)}</strong><span>${escapeHtml(item.handle || "")} · ${escapeHtml((item.labels || []).join(", "))}</span><p>${escapeHtml(item.suggested_followup || item.notes || "")}</p></div>`);
+
+        growthList("growth-pipeline-list", (data.campaign_plan || []).slice(0, 8), item => `
+            <div class="growth-list-item"><strong>Day ${escapeHtml(item.day)} · ${escapeHtml(item.platform)} · ${escapeHtml(item.theme)}</strong><span>${escapeHtml(item.date)} · ${escapeHtml(item.asset_type)} · ${escapeHtml(item.template)}</span><p>${escapeHtml(item.hook)}</p></div>`, "Generate a campaign plan to fill the pipeline.");
+
+        const bio = data.link_in_bio || {};
+        if (byId("growth-bio-slug")) byId("growth-bio-slug").value = bio.slug || "6frame";
+        if (byId("growth-bio-headline")) byId("growth-bio-headline").value = bio.headline || "";
+        if (byId("growth-bio-video")) byId("growth-bio-video").value = bio.featured_video || "";
+        if (byId("growth-bio-link")) byId("growth-bio-link").href = `/b/${encodeURIComponent(bio.slug || "6frame")}`;
+
+        growthList("growth-utm-list", data.utm_campaigns, item => `
+            <div class="growth-list-item"><strong>${escapeHtml(item.campaign)}</strong><a class="growth-link" href="${escapeHtml(item.tracked_url || item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.tracked_url || item.url)}</a><span>${escapeHtml(item.source)} · ${escapeHtml(item.medium)} · ${escapeHtml(item.clicks || 0)} clicks</span></div>`, "Build a UTM link to start tracking.");
+
+        growthList("growth-workspace-list", data.workspaces, item => `
+            <div class="growth-list-item"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.role || "client")} · ${escapeHtml(item.id)}</span></div>`);
+
+        growthList("growth-rules-list", data.automation_rules, item => `
+            <div class="growth-list-item"><strong>If ${escapeHtml(item.trigger)}</strong><span>${escapeHtml(item.condition)} → ${escapeHtml(item.action)} · ${item.enabled === false ? "off" : "on"}</span></div>`);
+        growthList("growth-events-list", (data.automation_events || []).slice(0, 6), item => `
+            <div class="growth-list-item"><strong>${escapeHtml(item.status || "EVENT")} · ${escapeHtml(item.trigger || "rule")}</strong><span>${escapeHtml(shortDate(item.created_at))}</span><p>${escapeHtml(item.message || "")}</p></div>`, "No automation runs yet.");
+
+        growthList("growth-integrations-list", data.integrations, item => `
+            <div class="growth-list-item"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.status || "ready")}</span><p>${escapeHtml(item.webhook_url || "Webhook/connector slot ready.")}</p></div>`);
+
+        const reports = data.report_history && data.report_history.length ? data.report_history : [data.reports_preview].filter(Boolean);
+        growthList("growth-report-list", reports, item => `
+            <div class="growth-list-item"><strong>Report · ${escapeHtml(shortDate(item.created_at))}</strong><span>${escapeHtml(item.summary?.published || 0)} published · ${escapeHtml(item.summary?.awaiting_approval || 0)} awaiting · best hour ${escapeHtml(item.summary?.best_hour ?? "--")}</span><p>${escapeHtml((item.recommendations || []).slice(0, 2).join(" "))}</p>${item.pdf_path ? `<a class="growth-link" href="${escapeHtml(item.pdf_path)}" target="_blank" rel="noreferrer">Open PDF</a>` : ""}${item.html_path ? `<a class="growth-link" href="${escapeHtml(item.html_path)}" target="_blank" rel="noreferrer">Open HTML</a>` : ""}</div>`);
+    }
+
+    function fetchGrowthOS() {
+        if (!byId("growth-view")) return;
+        fetch("/api/growth-os")
+            .then(res => {
+                if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "Failed to load Growth OS") });
+                return res.json();
+            })
+            .then(renderGrowthOS)
+            .catch(err => showToast(err.message, true));
+    }
+
+    function attachGrowthHandlers() {
+        const click = (id, handler) => {
+            const el = byId(id);
+            if (el) el.addEventListener("click", handler);
+        };
+        const engineDurations = {
+            fal_hailuo_02: [6, 10],
+            fal_hailuo_23: [6, 10],
+            fal_seedance_fast: [5, 6, 10, 12],
+            fal_ltx_fast: [6, 8, 10, 12, 14, 16, 18, 20],
+            google_veo_lite: [5]
+        };
+        const updateGrowthDurations = () => {
+            const engine = byId("growth-video-engine")?.value || "fal_hailuo_02";
+            const durationSelect = byId("growth-video-duration");
+            if (!durationSelect) return;
+            const previous = durationSelect.value;
+            const values = engineDurations[engine] || [6, 10];
+            durationSelect.innerHTML = values.map(v => `<option value="${v}">${v}s each</option>`).join("");
+            durationSelect.value = values.includes(parseInt(previous, 10)) ? previous : String(values[values.length - 1]);
+        };
+        const engineSelect = byId("growth-video-engine");
+        if (engineSelect) {
+            engineSelect.addEventListener("change", updateGrowthDurations);
+            updateGrowthDurations();
+        }
+        click("growth-refresh-btn", () => {
+            const btn = byId("growth-refresh-btn");
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = "Refreshing...";
+            }
+            fetch("/api/growth-os/live-refresh", { method: "POST" })
+                .then(res => {
+                    if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "Live refresh failed") });
+                    return res.json();
+                })
+                .then(() => {
+                    showToast("Live Growth OS refresh started.");
+                    setTimeout(fetchGrowthOS, 2500);
+                })
+                .catch(err => showToast(err.message, true))
+                .finally(() => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = "Refresh";
+                    }
+                });
+        });
+        click("growth-report-btn", () => {
+            fetch("/api/growth-os/report", { method: "POST" })
+                .then(res => res.json())
+                .then(() => { showToast("Growth report built."); fetchGrowthOS(); })
+                .catch(err => showToast(err.message, true));
+        });
+        click("growth-plan-btn", () => {
+            fetch("/api/growth-os/campaign-plan", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    business_url: byId("growth-plan-url")?.value || "",
+                    goals: byId("growth-plan-goals")?.value || "",
+                    audience: byId("growth-plan-audience")?.value || ""
+                })
+            })
+            .then(res => res.json())
+            .then(() => { showToast("30-day campaign plan generated."); fetchGrowthOS(); })
+            .catch(err => showToast(err.message, true));
+        });
+        click("growth-add-topic-btn", () => {
+            const keyword = byId("growth-topic-input")?.value.trim();
+            if (!keyword) return showToast("Add a topic first.", true);
+            postGrowthItem("listening_topics", { keyword, type: keyword.startsWith("#") ? "hashtag" : "keyword", priority: "medium", status: "active" })
+                .then(() => { byId("growth-topic-input").value = ""; fetchGrowthOS(); });
+        });
+        click("growth-add-competitor-btn", () => {
+            const name = byId("growth-competitor-input")?.value.trim();
+            if (!name) return showToast("Add a competitor first.", true);
+            postGrowthItem("competitors", { name, handle: name.startsWith("@") ? name : "", platform: "social", posting_frequency: "tracking", format_patterns: ["top posts", "hooks", "format cadence"], engagement_velocity: "learning" })
+                .then(() => { byId("growth-competitor-input").value = ""; fetchGrowthOS(); });
+        });
+        click("growth-brand-save-btn", () => {
+            fetch("/api/growth-os/brand_kit", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ data: {
+                    colors: (byId("growth-brand-colors")?.value || "").split(",").map(v => v.trim()).filter(Boolean),
+                    logo_url: byId("growth-brand-logo")?.value || "",
+                    tone_presets: (byId("growth-brand-tone")?.value || "").split(",").map(v => v.trim()).filter(Boolean)
+                }})
+            }).then(() => { showToast("Brand kit saved."); fetchGrowthOS(); });
+        });
+        click("growth-add-abtest-btn", () => {
+            const name = byId("growth-abtest-input")?.value.trim();
+            if (!name) return showToast("Name the test first.", true);
+            postGrowthItem("ab_tests", { name, variants: ["hook A", "hook B"], metric: "engagement_score", status: "draft" })
+                .then(() => { byId("growth-abtest-input").value = ""; fetchGrowthOS(); });
+        });
+        click("growth-add-crm-btn", () => {
+            const handle = byId("growth-crm-input")?.value.trim();
+            if (!handle) return showToast("Add a contact first.", true);
+            postGrowthItem("crm_contacts", { name: handle, handle, platform: "social", labels: ["lead"], notes: "Added from Growth OS.", suggested_followup: "Review latest interaction and draft a follow-up." })
+                .then(() => { byId("growth-crm-input").value = ""; fetchGrowthOS(); });
+        });
+        click("growth-bio-save-btn", () => {
+            fetch("/api/growth-os/link_in_bio", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ data: {
+                    slug: byId("growth-bio-slug")?.value || "6frame",
+                    headline: byId("growth-bio-headline")?.value || "6Frame Studio",
+                    featured_video: byId("growth-bio-video")?.value || ""
+                }})
+            }).then(() => { showToast("Link-in-bio page saved."); fetchGrowthOS(); });
+        });
+        click("growth-utm-btn", () => {
+            const baseUrl = byId("growth-utm-url")?.value.trim();
+            if (!baseUrl) return showToast("Add a destination URL first.", true);
+            fetch("/api/growth-os/utm", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    base_url: baseUrl,
+                    campaign: byId("growth-utm-campaign")?.value || "6frame",
+                    content: byId("growth-utm-content")?.value || "",
+                    source: "social",
+                    medium: "organic"
+                })
+            }).then(() => { showToast("UTM link created."); fetchGrowthOS(); });
+        });
+        click("growth-add-workspace-btn", () => {
+            const name = byId("growth-workspace-input")?.value.trim();
+            if (!name) return showToast("Add a workspace name first.", true);
+            postGrowthItem("workspaces", { name, role: "client" })
+                .then(() => { byId("growth-workspace-input").value = ""; fetchGrowthOS(); });
+        });
+        click("growth-add-rule-btn", () => {
+            const trigger = byId("growth-rule-trigger")?.value.trim();
+            const condition = byId("growth-rule-condition")?.value.trim();
+            const action = byId("growth-rule-action")?.value.trim();
+            if (!trigger || !action) return showToast("Add trigger and action first.", true);
+            postGrowthItem("automation_rules", { trigger, condition: condition || "any", action, enabled: true })
+                .then(() => {
+                    byId("growth-rule-trigger").value = "";
+                    byId("growth-rule-condition").value = "";
+                    byId("growth-rule-action").value = "";
+                    fetchGrowthOS();
+                });
+        });
+        click("growth-run-rules-btn", () => {
+            const btn = byId("growth-run-rules-btn");
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = "Running...";
+            }
+            fetch("/api/growth-os/run-automation-rules", { method: "POST" })
+                .then(res => {
+                    if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "Automation run failed") });
+                    return res.json();
+                })
+                .then(data => {
+                    showToast(`Automation run complete: ${(data.events || []).length} event(s).`);
+                    fetchGrowthOS();
+                })
+                .catch(err => showToast(err.message, true))
+                .finally(() => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.textContent = "Run";
+                    }
+                });
+        });
+        click("growth-multiscene-btn", () => {
+            const prompt = byId("growth-video-prompt")?.value.trim();
+            if (!prompt) return showToast("Add a video prompt first.", true);
+            const btn = byId("growth-multiscene-btn");
+            const status = byId("growth-multiscene-status");
+            btn.disabled = true;
+            status.textContent = "Queued...";
+            fetch("/api/growth-os/multiscene-video", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    prompt,
+                    engine: byId("growth-video-engine")?.value || "fal_hailuo_02",
+                    scene_count: parseInt(byId("growth-video-scenes")?.value || "3", 10),
+                    scene_duration: parseInt(byId("growth-video-duration")?.value || "6", 10),
+                    template_id: byId("growth-video-template")?.value || "hook_burst",
+                    apply_template: true,
+                    title: "Multi-Scene Campaign",
+                    subtitle: "Generated by 6Frame Studio Growth OS"
+                })
+            })
+            .then(res => res.json())
+            .then(data => pollGrowthVideo(data.job_id, btn))
+            .catch(err => {
+                btn.disabled = false;
+                status.textContent = "Render failed to start.";
+                showToast(err.message, true);
+            });
+        });
+    }
+
+    function pollGrowthVideo(jobId, btn) {
+        if (growthPollTimer) clearInterval(growthPollTimer);
+        const status = byId("growth-multiscene-status");
+        const output = byId("growth-multiscene-output");
+        growthPollTimer = setInterval(() => {
+            fetch(`/api/video-status/${jobId}`)
+                .then(res => res.json())
+                .then(data => {
+                    status.textContent = `${data.status || "PROCESSING"} · ${data.progress || 0}% · ${data.message || ""}`;
+                    if (data.status === "SUCCESS") {
+                        clearInterval(growthPollTimer);
+                        btn.disabled = false;
+                        const videoPath = data.result?.video_path;
+                        output.innerHTML = videoPath ? `<video src="${escapeHtml(videoPath)}" controls></video><a class="growth-link" href="${escapeHtml(videoPath)}" target="_blank" rel="noreferrer">Open rendered video</a>` : "";
+                        fetchGrowthOS();
+                    }
+                    if (data.status === "FAILED") {
+                        clearInterval(growthPollTimer);
+                        btn.disabled = false;
+                        showToast(data.message || "Multi-scene render failed.", true);
+                    }
+                })
+                .catch(err => {
+                    clearInterval(growthPollTimer);
+                    btn.disabled = false;
+                    showToast(err.message, true);
+                });
+        }, 4000);
+    }
+
+    attachGrowthHandlers();
+
     // Initial load and polling setup
     fetchScheduledQueue();
     fetchApprovalQueue();
     fetchAnalyticsSummary();
     fetchEngagementQueue();
+    fetchGrowthOS();
     setInterval(fetchScheduledQueue, 10000);
     setInterval(fetchApprovalQueue, 10000);
     setInterval(fetchAnalyticsSummary, 30000);

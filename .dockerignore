@@ -1,5 +1,9 @@
-.venv/
-__pycache__/
+.git
+.venv
+__pycache__
+*.pyc
+.DS_Store
+.playwright-cli
 settings.json
 scheduled_posts.json
 engagement_queue.json
@@ -10,11 +14,7 @@ final_audit_snapshot.json
 live_certification_continued.json
 live_publish_after_patch.json
 second_full_live_certification.json
-reports/
-__pycache__/
-*.pyc
-static/assets/generated/
-uploads/
+reports
+uploads
+static/assets/generated
 *.log
-.playwright-cli/
-.DS_Store
