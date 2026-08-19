@@ -113,6 +113,7 @@ def is_public_path(path: str) -> bool:
         or path in ("/privacy-policy", "/terms-of-service")
         or path.startswith(PUBLIC_PREFIXES)
         or path.startswith("/tiktok")
+        or path.startswith("/oauth/postproxy/")
     )
 
 @app.middleware("http")
@@ -1595,6 +1596,7 @@ def get_capabilities():
 def get_credentials():
     return build_capabilities_payload(sync=False)
 
+@app.get("/oauth/postproxy/callback")
 @app.get("/api/postproxy/callback")
 def postproxy_oauth_callback(request: Request, failure: Optional[str] = None, error_code: Optional[str] = None):
     params = request.query_params
