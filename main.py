@@ -30,18 +30,6 @@ from orchestrator import (
     render_variant_with_fallback, get_font_path
 )
 from template_renderer import list_viral_templates, render_template_video
-from marketing_os import (
-    snapshot as marketing_os_snapshot,
-    load_brand_context,
-    save_brand_context,
-    generate_hook_matrix,
-    generate_launch_packet,
-    socialclaw_status,
-    socialclaw_submit,
-    save_os_state,
-    load_os_state,
-    list_tactics,
-)
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -164,7 +152,6 @@ UPLOAD_DIR = os.path.join(STATE_DIR, "uploads")
 GENERATED_DIR = os.path.join(STATE_DIR, "generated")
 REPORTS_DIR = os.path.join(STATE_DIR, "reports")
 SETTINGS_FILE = os.path.join(STATE_DIR, "settings.json")
-BRAND_CONTEXT_FILE = os.path.join(STATE_DIR, "brand_context.json")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
@@ -362,31 +349,6 @@ class ControlledPostProxyPublishRequest(BaseModel):
     text: Optional[str] = None
     video_path: Optional[str] = None
     campaign_title: Optional[str] = None
-
-class BrandContextRequest(BaseModel):
-    product: Optional[Dict[str, Any]] = None
-    audience: Optional[Dict[str, Any]] = None
-    positioning: Optional[Dict[str, Any]] = None
-    proof: Optional[Dict[str, Any]] = None
-    voice: Optional[Dict[str, Any]] = None
-    constraints: Optional[Dict[str, Any]] = None
-
-class HookEngineRequest(BaseModel):
-    segment: Optional[str] = ""
-    extra_notes: Optional[str] = ""
-    tactic_ids: Optional[List[str]] = None
-    persist: bool = True
-
-class LaunchPacketRequest(BaseModel):
-    what_ships: Optional[str] = ""
-    metric: Optional[str] = ""
-    launch_date: Optional[str] = ""
-    extra_notes: Optional[str] = ""
-    persist: bool = True
-
-class SocialClawSubmitRequest(BaseModel):
-    apply: bool = False
-    packet: Optional[Dict[str, Any]] = None
 
 def resolve_local_video_path(video_path: str) -> str:
     if not video_path:
@@ -4362,64 +4324,6 @@ LEGAL_PAGE_STYLE = """
   a { color: #a855f7; }
 </style>
 """
-
-
-@app.get("/api/marketing-os")
-def get_marketing_os():
-    return marketing_os_snapshot(STATE_DIR)
-
-@app.get("/api/marketing-os/tactics")
-def get_marketing_os_tactics():
-    return {"tactics": list_tactics()}
-
-@app.get("/api/marketing-os/brand-context")
-def get_brand_context():
-    return load_brand_context(STATE_DIR)
-
-@app.post("/api/marketing-os/brand-context")
-def update_brand_context(req: BrandContextRequest):
-    return save_brand_context(STATE_DIR, req.model_dump())
-
-@app.post("/api/marketing-os/hooks")
-def create_hook_matrix(req: HookEngineRequest):
-    brand = load_brand_context(STATE_DIR)
-    matrix = generate_hook_matrix(
-        brand,
-        segment=req.segment or "",
-        extra_notes=req.extra_notes or "",
-        tactic_ids=req.tactic_ids,
-    )
-    if req.persist:
-        save_os_state(STATE_DIR, {"hooks": matrix})
-    return matrix
-
-@app.post("/api/marketing-os/launch-packet")
-def create_launch_packet(req: LaunchPacketRequest):
-    brand = load_brand_context(STATE_DIR)
-    packet = generate_launch_packet(
-        brand,
-        what_ships=req.what_ships or "",
-        metric=req.metric or "",
-        launch_date=req.launch_date or "",
-        extra_notes=req.extra_notes or "",
-    )
-    if req.persist:
-        save_os_state(STATE_DIR, {"packet": packet})
-    return packet
-
-@app.get("/api/marketing-os/socialclaw")
-def get_socialclaw_status():
-    return socialclaw_status()
-
-@app.post("/api/marketing-os/socialclaw/submit")
-def submit_socialclaw(req: SocialClawSubmitRequest):
-    packet = req.packet
-    if not packet:
-        packet = load_os_state(STATE_DIR).get("packet")
-    if not packet:
-        raise HTTPException(status_code=400, detail="No launch packet to send. Generate one first.")
-    return socialclaw_submit(packet, apply=req.apply)
-
 
 @app.get("/privacy-policy", response_class=HTMLResponse)
 def privacy_policy():

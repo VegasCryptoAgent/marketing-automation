@@ -18,6 +18,3 @@ uploads/
 *.log
 .playwright-cli/
 .DS_Store
-
-brand_context.json
-marketing_os_state.json
