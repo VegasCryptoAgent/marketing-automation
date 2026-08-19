@@ -51,6 +51,7 @@ def test_capabilities_requires_auth():
     assert client.get("/api/capabilities").status_code == 401
     assert client.get("/api/credentials").status_code == 401
     assert client.post("/api/postproxy/sync").status_code == 401
+    assert client.get("/api/postproxy/status").status_code == 401
 
 
 def test_postproxy_callback_is_public():
@@ -58,4 +59,39 @@ def test_postproxy_callback_is_public():
     client = TestClient(main.app, follow_redirects=False)
     res = client.get("/api/postproxy/callback")
     assert res.status_code in (302, 307)
-    assert "postproxy=connected" in res.headers.get("location", "")
+    assert "postproxy=ok" in res.headers.get("location", "")
+    fail = client.get("/api/postproxy/callback?error=access_denied")
+    assert "postproxy=failure" in fail.headers.get("location", "")
+
+
+def test_postproxy_status_has_no_secrets(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(main, "POSTPROXY_STATE_FILE", str(tmp_path / "postproxy_state.json"))
+    main.save_postproxy_state({
+        "key_valid": True,
+        "profile_group_id": "grp_demo",
+        "profiles": [{"id": "prof_x", "name": "@studio", "platform": "twitter", "status": "active"}],
+        "placements": {"twitter": {"placement_id": None, "placements": []}},
+        "synced_at": "2026-08-19T00:00:00",
+    })
+    client = TestClient(main.app)
+    token = __import__("base64").b64encode(b"admin:test-password").decode()
+    res = client.get("/api/postproxy/status", headers={"Authorization": f"Basic {token}"})
+    assert res.status_code == 200
+    payload = res.json()
+    blob = str(payload).lower()
+    assert "bearer " not in blob
+    assert "postproxy_api_key" not in payload
+    assert payload["configured"] in (True, False)
+    assert "channels" in payload
+    assert payload["channels"]["twitter"]["live"] is True
+
+
+def test_inactive_postproxy_profile_is_not_live():
+    channels = main.build_social_channel_status({}, {
+        "profiles": [{"id": "p1", "platform": "linkedin", "status": "inactive", "name": "Old"}],
+        "placements": {},
+    })
+    linkedin = next(item for item in channels if item["platform"] == "linkedin")
+    assert linkedin["live"] is False
+    assert linkedin["status"] == "INACTIVE"
