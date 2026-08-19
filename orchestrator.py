@@ -115,11 +115,11 @@ class TwitterThread(BaseModel):
     tweets: List[str] = Field(description="A list of 1 to 3 tweets representing a thread. Each tweet must be strictly under 280 characters.")
 
 class SocialCopyResponse(BaseModel):
-    linkedin_post: str = Field(description="A professional, behind-the-scenes LinkedIn post. Detail the AI tools, rendering techniques, and styling.")
-    twitter_post: str = Field(description="A single punchy tweet (under 280 characters) to summarize the video.")
-    twitter_thread: List[str] = Field(description="A list of 2 to 3 tweets representing a thread. Each tweet must be strictly under 280 characters. The first tweet should contain a strong hook.")
-    instagram_caption: str = Field(description="An aesthetic, visually-driven Instagram caption. Under 150 words. Focus on mood, cinematography, and styling.")
-    suggested_hashtags: List[str] = Field(description="5 to 8 highly relevant hashtags (e.g. #AIArt, #Sora, #RunwayML, #6FrameStudio).")
+    linkedin_post: str = Field(description="A professional, behind-the-scenes LinkedIn post. Detail the AI tools, rendering techniques, and styling. End with a blank line and 5-8 hashtags starting with #6FrameStudio #AIFilmmaking #AICinema, then 2-5 topic tags (e.g. #KlingAI #RunwayML #AIvideo).")
+    twitter_post: str = Field(description="A single punchy tweet (under 280 characters) to summarize the video. Include 1-2 hashtags (prefer #6FrameStudio) at the end.")
+    twitter_thread: List[str] = Field(description="A list of 2 to 3 tweets representing a thread. Each tweet must be strictly under 280 characters. The first tweet should contain a strong hook. The LAST tweet must end with 1-2 hashtags (prefer #6FrameStudio) and stay under 280 characters.")
+    instagram_caption: str = Field(description="An aesthetic, visually-driven Instagram caption. Under 150 words. Focus on mood, cinematography, and styling. End with a blank line and 8-12 hashtags starting with #6FrameStudio #AIFilmmaking #AICinema.")
+    suggested_hashtags: List[str] = Field(description="5 to 8 highly relevant hashtags starting with #6FrameStudio #AIFilmmaking #AICinema, then topic tags (e.g. #KlingAI #RunwayML #Sora #AIvideo).")
 
 class ViralityScore(BaseModel):
     score: int = Field(description="Predicted virality score from 0 to 100, where 100 is maximum viral potential.")
@@ -142,9 +142,10 @@ class ViralConcept(BaseModel):
     original_concept: str = Field(description="Detailed description of the original video's exact visual content: subject, camera movement, editing technique, and pacing.")
     studio_adaptation_concept: str = Field(description="The literal recreation plan: how 6Frame Studio will recreate this SAME viral video shot-for-shot (same subject, scene, and motion), finished in 6Frame Studio's premium cinematic style.")
     recreated_video_prompt: str = Field(description="A precise Image-to-Video/Text-to-Video motion prompt that recreates the SAME viral video as closely as possible (same subject, camera motion, lighting, pacing) — not a new or loosely-inspired concept.")
-    recreated_linkedin_post: str = Field(description="The ORIGINAL viral post's LinkedIn copy, reworded in 6Frame Studio's brand voice — same core message, hook, and story — framed as 6Frame Studio's own recreation, crediting the original creator's handle.")
-    recreated_twitter_thread: List[str] = Field(description="The ORIGINAL viral post reworded as a Twitter/X thread in 6Frame Studio's brand voice (2-3 tweets, under 280 chars each) — same message and hook as the original, just reworded and credited.")
-    recreated_instagram_caption: str = Field(description="The ORIGINAL viral post reworded as an Instagram caption in 6Frame Studio's brand voice, keeping the same core message and hook, with hashtags.")
+    recreated_linkedin_post: str = Field(description="The ORIGINAL viral post's LinkedIn copy, reworded in 6Frame Studio's brand voice — same core message, hook, and story — framed as 6Frame Studio's own recreation, crediting the original creator's handle. End with a blank line and 5-8 hashtags starting with #6FrameStudio #AIFilmmaking #AICinema, then 2-5 topic tags from the video tools/style (e.g. #KlingAI #RunwayML #AIvideo).")
+    recreated_twitter_thread: List[str] = Field(description="The ORIGINAL viral post reworded as a Twitter/X thread in 6Frame Studio's brand voice (2-3 tweets, under 280 chars each) — same message and hook as the original, just reworded and credited. The LAST tweet must include 1-2 hashtags (prefer #6FrameStudio) and stay under 280 characters.")
+    recreated_instagram_caption: str = Field(description="The ORIGINAL viral post reworded as an Instagram caption in 6Frame Studio's brand voice, keeping the same core message and hook, ending with a blank line and 8-12 hashtags starting with #6FrameStudio #AIFilmmaking #AICinema.")
+    suggested_hashtags: List[str] = Field(description="5 to 8 hashtags starting with #6FrameStudio #AIFilmmaking #AICinema, then topic tags such as #KlingAI #RunwayML #Sora #Veo #AIvideo.")
     original_post_text: str = Field(description="Reconstructed or summarized text/copy of the original viral post — the source material the recreated_* copy fields are reworded from.")
 
 
@@ -262,7 +263,8 @@ def run_multi_agent_pipeline(
         2. **Twitter/X Single Post**: Under 280 characters, highly hooky, driving engagement.
         3. **Twitter/X Thread**: A sequence of 2-3 tweets expanding on the cinematic process. Each tweet must be under 280 characters.
         4. **Instagram Caption**: Mood-oriented, visual, under 150 words, clean style, matching the video's aesthetic.
-        5. **Suggested Hashtags**: Relevant industry and brand hashtags.
+        5. **Suggested Hashtags**: Always start with #6FrameStudio #AIFilmmaking #AICinema, then 2-5 topic tags for the tools/style in the video (e.g. #KlingAI #RunwayML #Sora #AIvideo).
+        6. **Hashtag placement**: LinkedIn and Instagram captions must end with a blank line then the hashtag paragraph. The last tweet of the Twitter thread must include 1-2 hashtags and stay under 280 characters. Never insert hashtags into the middle of the hook.
 
         ### POST FORMATTING AND SPACING RULES (CRITICAL)
         - **Double Line Breaks**: You MUST separate all paragraphs and bullet groups with a blank line (double newlines `\n\n`). Do not write long blocks of single-spaced text.
@@ -630,6 +632,7 @@ def run_live_trend_scanner(
         4. Write a precise Image-to-Video/Text-to-Video motion prompt (recreated_video_prompt) that recreates that SAME video as closely as possible — not a new or different concept.
         5. Reconstruct the original creator's post text/caption (original_post_text).
         6. Reword the ORIGINAL POST TEXT itself into 6Frame Studio's brand voice for LinkedIn, a Twitter/X thread, and Instagram (recreated_linkedin_post, recreated_twitter_thread, recreated_instagram_caption). Preserve the exact same hook, excitement, and core message as the original caption — just translate its tone and wording into 6Frame Studio's cinematic, refined voice, as if 6Frame Studio itself is captioning its OWN recreated video. Do NOT write it as a reaction to, review of, or commentary about someone else's post ("We were captivated by...", "Check out this creator's..."). It must read as 6Frame Studio's own first-person post about their own video. End with one brief, secondary line crediting the original creator/trend as the inspiration (e.g. "Inspired by a viral moment from @handle on Platform").
+        7. Hashtags are required. Always start with #6FrameStudio #AIFilmmaking #AICinema, then add 2-5 topic tags from the title/tools (Kling, Sora, Runway, Veo, Luma, etc.). LinkedIn: 5-8 tags as a final paragraph after a blank line. Instagram: 8-12 tags as a final paragraph. Twitter: 1-2 tags on the LAST tweet only, still under 280 characters. Also fill suggested_hashtags. Never insert hashtags into the middle of the hook.
 
         ### POST FORMATTING AND SPACING RULES (CRITICAL)
         - **Double Line Breaks**: You MUST separate all paragraphs, bullet point blocks, and commentary highlights with an empty line (double newlines `\n\n`). Do not write long blocks of single-spaced text.
@@ -1449,9 +1452,10 @@ def draft_engagement_reply(mention_text: str, mention_author: str, settings: Dic
 class RepurposedContent(BaseModel):
     author: str = Field(description="Creator's username/channel name")
     original_post_text: str = Field(description="Summary or text of the original post")
-    repurposed_linkedin_post: str = Field(description="Staged B2B LinkedIn post copy for 6Frame Studio commenting on the video and citing the link/author")
-    repurposed_twitter_thread: List[str] = Field(description="Staged Twitter thread (2-3 tweets, under 280 chars each)")
-    repurposed_instagram_caption: str = Field(description="Staged Instagram caption with hashtags")
+    repurposed_linkedin_post: str = Field(description="Staged B2B LinkedIn post copy for 6Frame Studio commenting on the video and citing the link/author. End with a blank line and 5-8 hashtags starting with #6FrameStudio #AIFilmmaking #AICinema, then 2-5 topic tags.")
+    repurposed_twitter_thread: List[str] = Field(description="Staged Twitter thread (2-3 tweets, under 280 chars each). The LAST tweet must include 1-2 hashtags (prefer #6FrameStudio) and stay under 280 characters.")
+    repurposed_instagram_caption: str = Field(description="Staged Instagram caption ending with a blank line and 8-12 hashtags starting with #6FrameStudio #AIFilmmaking #AICinema.")
+    suggested_hashtags: List[str] = Field(description="5 to 8 hashtags starting with #6FrameStudio #AIFilmmaking #AICinema, then topic tags such as #KlingAI #RunwayML #AIvideo.")
 
 def repurpose_video_link_copy(url: str, settings: Dict[str, Any]) -> RepurposedContent:
     api_key = settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY")
@@ -1511,9 +1515,10 @@ def repurpose_video_link_copy(url: str, settings: Dict[str, Any]) -> RepurposedC
     3. Write repurposed social copy in the brand voice of 6Frame Studio (cinematic, refined, artistic, technical but premium) reacting to/commenting on the original video. You must explicitly credit the creator/author (by username) and direct the audience to check out the original clip (using the URL {url} or a citation).
     
     Draft:
-    - repurposed_linkedin_post: A professional, cinematic review/commentary for LinkedIn citing the creator.
-    - repurposed_twitter_thread: A structured X thread (2-3 tweets, each under 280 characters).
-    - repurposed_instagram_caption: A premium caption with hashtags.
+    - repurposed_linkedin_post: A professional, cinematic review/commentary for LinkedIn citing the creator. End with a blank line and 5-8 hashtags starting with #6FrameStudio #AIFilmmaking #AICinema plus 2-5 topic tags.
+    - repurposed_twitter_thread: A structured X thread (2-3 tweets, each under 280 characters). Put 1-2 hashtags on the LAST tweet only.
+    - repurposed_instagram_caption: A premium caption ending with 8-12 hashtags starting with #6FrameStudio #AIFilmmaking #AICinema.
+    - suggested_hashtags: The same brand-first hashtag list used across platforms.
 
     ### POST FORMATTING AND SPACING RULES (CRITICAL)
     - **Double Line Breaks**: You MUST separate all paragraphs, highlights, and bullet groups with a blank line (double newlines `\n\n`). Do not write long blocks of single-spaced text.

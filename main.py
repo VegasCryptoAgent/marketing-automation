@@ -30,6 +30,13 @@ from orchestrator import (
     render_variant_with_fallback, get_font_path
 )
 from template_renderer import list_viral_templates, render_template_video
+from hashtags import (
+    apply_hashtags_to_twitter_thread,
+    apply_platform_hashtags,
+    apply_platform_twitter_thread,
+    collect_hashtag_pool,
+    hashtags_for_platform,
+)
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -463,13 +470,44 @@ def upload_video_to_linkedin(video_path: str, author_urn: str, settings: dict) -
         logger.error(f"LinkedIn video upload failed: {e}")
         return None
 
+# 9:16 for every network except LinkedIn and X. YouTube publishes as Shorts.
+LANDSCAPE_PLATFORMS = frozenset({"linkedin", "twitter", "x"})
+VERTICAL_PLATFORMS = frozenset({"instagram", "tiktok", "youtube", "facebook", "threads"})
+YOUTUBE_TITLE_LIMIT = 100
+YOUTUBE_SHORTS_SUFFIX = " #Shorts"
+
+
+def uses_vertical_media(platform: str) -> bool:
+    key = (platform or "").lower()
+    if key == "x":
+        key = "twitter"
+    if not key:
+        return False
+    return key not in LANDSCAPE_PLATFORMS
+
+
+def youtube_shorts_title(post: dict, body: str = "") -> str:
+    """Keep the title under 100 chars and always end with #Shorts for Shorts classification."""
+    raw = (post.get("campaign_title") or (body or post.get("text") or "6Frame Studio")).strip()
+    raw = raw.split("\n", 1)[0].strip()
+    raw = re.sub(r"(?:^|\s)#shorts\b", "", raw, flags=re.I).strip()
+    budget = YOUTUBE_TITLE_LIMIT - len(YOUTUBE_SHORTS_SUFFIX)
+    if len(raw) > budget:
+        cut = raw[:budget]
+        if " " in cut:
+            cut = cut.rsplit(" ", 1)[0]
+        raw = cut.rstrip(" -|:;,")
+    if not raw:
+        raw = "6Frame Studio"
+    return f"{raw}{YOUTUBE_SHORTS_SUFFIX}"[:YOUTUBE_TITLE_LIMIT]
+
+
 def get_public_video_url(post: dict, settings: dict, platform_key: str = "") -> str:
-    """Instagram/TikTok/Facebook/Threads require a publicly reachable HTTPS URL for the video,
-    not a raw file upload. Requires PUBLIC_BASE_URL to be set to this app's own public domain
-    (e.g. the Railway production URL) since these platforms fetch the file themselves.
-    Instagram Reels and TikTok require vertical (9:16) video — if the post carries a
-    vertical_video_path (rendered as a variant of the main video), prefer it for those two
-    platforms; other platforms use the original video_path as-is."""
+    """Return a public HTTPS URL for PostProxy / Graph pulls.
+
+    Instagram, TikTok, YouTube Shorts, Facebook, and Threads use the 9:16 file.
+    LinkedIn and Twitter/X use the landscape original.
+    """
     base_url = settings.get("public_base_url", "").rstrip("/")
     if not base_url:
         raise ValueError(
@@ -478,7 +516,7 @@ def get_public_video_url(post: dict, settings: dict, platform_key: str = "") -> 
             "(e.g. your Railway production URL) before publishing to these platforms."
         )
     video_path = post.get("video_path")
-    if platform_key in ("instagram", "tiktok", "youtube") and post.get("vertical_video_path"):
+    if uses_vertical_media(platform_key) and post.get("vertical_video_path"):
         video_path = post["vertical_video_path"]
     if not video_path:
         raise ValueError("This post has no video attached — Instagram/TikTok/Facebook/Threads require a video.")
@@ -714,7 +752,7 @@ def publish_threads_post(post: dict, settings: dict):
     if not access_token or not threads_user_id:
         raise ValueError("Missing Threads credentials (access token / user ID).")
 
-    video_url = get_public_video_url(post, settings)
+    video_url = get_public_video_url(post, settings, "threads")
     create_url = f"https://graph.threads.net/v1.0/{threads_user_id}/threads"
     create_res = requests.post(create_url, data={
         "media_type": "VIDEO",
@@ -768,7 +806,7 @@ def publish_youtube_short(post: dict, settings: dict):
         raise ValueError(f"Video file does not exist at {abs_video_path}")
 
     access_token = get_youtube_access_token(settings)
-    title = (post.get("campaign_title") or (post.get("text") or "")[:80] or "6Frame Studio")[:100]
+    title = youtube_shorts_title(post)
     metadata = {
         "snippet": {
             "title": title,
@@ -1125,10 +1163,21 @@ def split_twitter_caption(text: str, existing_thread: Optional[List[str]] = None
 def postproxy_media_url(post: dict, settings: dict, platforms: List[str]) -> Optional[str]:
     if not post.get("video_path"):
         return None
-    if any(p in platforms for p in ("instagram", "tiktok", "youtube")):
+    mapped = [platform_to_postproxy(p) for p in platforms]
+    if any(uses_vertical_media(p) for p in mapped):
         ensure_vertical_video_variant(post)
-    platform_key = "instagram" if "instagram" in platforms else ("tiktok" if "tiktok" in platforms else "")
-    return get_public_video_url(post, settings, platform_key)
+    vertical = [p for p in mapped if uses_vertical_media(p)]
+    landscape = [p for p in mapped if not uses_vertical_media(p)]
+    if vertical and landscape:
+        logger.warning(
+            "PostProxy media URL requested for a mixed-aspect batch (%s); "
+            "split batches by aspect instead of sharing one file.",
+            ",".join(mapped),
+        )
+        return get_public_video_url(post, settings, landscape[0])
+    if vertical:
+        return get_public_video_url(post, settings, vertical[0])
+    return get_public_video_url(post, settings, landscape[0] if landscape else "")
 
 def estimated_postproxy_publish_units(post: dict, platforms: List[str]) -> int:
     mapped_platforms = [platform_to_postproxy(p) for p in platforms if platform_to_postproxy(p) in POSTPROXY_SUPPORTED_PLATFORMS]
@@ -1360,12 +1409,68 @@ def build_capabilities_payload(settings: Optional[dict] = None, sync: bool = Fal
         },
     }
 
+def resolve_publish_body(post: dict, platform: str) -> tuple:
+    """Hashtag-applied caption for one network. Twitter also returns thread parts."""
+    mapped = platform_to_postproxy(platform)
+    if mapped in ("twitter", "x"):
+        parts = split_twitter_caption(post.get("text", ""), post.get("thread"))
+        tags = hashtags_for_platform(collect_hashtag_pool(post), "twitter")
+        tagged = apply_hashtags_to_twitter_thread(parts, tags)
+        return tagged[0], tagged
+    return apply_platform_hashtags(post, mapped), None
+
+
+def media_aspect_for_platform(platform: str) -> str:
+    return "landscape" if not uses_vertical_media(platform) else "vertical"
+
+
+def plan_postproxy_batches(post: dict, publishable: List[str], has_media: bool) -> List[tuple]:
+    """Group platforms that share caption AND aspect. Never mix 9:16 with 16:9 media."""
+    twitter_body, twitter_parts = resolve_publish_body(post, "twitter") if "twitter" in publishable else ("", None)
+    twitter_needs_own_batch = "twitter" in publishable and (
+        (twitter_parts and len(twitter_parts) > 1)
+        or len((post.get("text") or "")) > TWITTER_CHAR_LIMIT
+        or any(p != "twitter" for p in publishable)
+    )
+    remaining = list(publishable)
+    batches: List[tuple] = []
+    if twitter_needs_own_batch:
+        remaining = [p for p in remaining if p != "twitter"]
+        batches.append((["twitter"], bool(has_media), twitter_body, twitter_parts))
+    elif "twitter" in remaining:
+        remaining = [p for p in remaining if p != "twitter"]
+        batches.append((["twitter"], bool(has_media), twitter_body, twitter_parts if twitter_parts and len(twitter_parts) > 1 else None))
+
+    groups: Dict[tuple, List[str]] = {}
+    group_order: List[tuple] = []
+    split_google = bool(has_media and "google_business" in remaining)
+    for platform in remaining:
+        if platform == "google_business" and split_google:
+            continue
+        body, _ = resolve_publish_body(post, platform)
+        key = (body, media_aspect_for_platform(platform))
+        if key not in groups:
+            groups[key] = []
+            group_order.append(key)
+        groups[key].append(platform)
+    for key in group_order:
+        batches.append((groups[key], bool(has_media), key[0], None))
+    if split_google:
+        gb_body, _ = resolve_publish_body(post, "google_business")
+        batches.append((["google_business"], False, gb_body, None))
+    return batches
+
+
 def publish_via_postproxy(post: dict, settings: dict, platforms: List[str]) -> dict:
     mapped_platforms = [platform_to_postproxy(p) for p in platforms if platform_to_postproxy(p) in POSTPROXY_SUPPORTED_PLATFORMS]
     if not mapped_platforms:
         return {"successes": [], "errors": ["PostProxy: no supported platforms selected."]}
-    media_url = postproxy_media_url(post, settings, mapped_platforms)
-    twitter_parts = split_twitter_caption(post.get("text", ""), post.get("thread"))
+    has_media = bool(post.get("video_path"))
+    if has_media and any(uses_vertical_media(p) for p in mapped_platforms):
+        try:
+            ensure_vertical_video_variant(post)
+        except Exception as variant_err:
+            logger.warning(f"Could not prepare 9:16 variant before PostProxy publish: {variant_err}")
     platform_params = resolve_postproxy_platform_params(settings, mapped_platforms)
     skipped_errors: List[str] = []
     publishable: List[str] = []
@@ -1390,7 +1495,7 @@ def publish_via_postproxy(post: dict, settings: dict, platforms: List[str]) -> d
         if "youtube" in batch_platforms:
             params.setdefault("youtube", {})
             params["youtube"].update({
-                "title": (post.get("campaign_title") or (body or "6Frame Studio")[:80])[:100],
+                "title": youtube_shorts_title(post, body),
                 "privacy_status": "public",
                 "made_for_kids": False,
             })
@@ -1403,8 +1508,10 @@ def publish_via_postproxy(post: dict, settings: dict, platforms: List[str]) -> d
         }
         if group_id:
             payload["profile_group_id"] = group_id
-        if include_media and media_url:
-            payload["media"] = [media_url]
+        if include_media and has_media:
+            batch_media = postproxy_media_url(post, settings, batch_platforms)
+            if batch_media:
+                payload["media"] = [batch_media]
         if thread_parts and len(thread_parts) > 1 and set(batch_platforms).issubset({"twitter", "threads"}):
             payload["post"]["body"] = thread_parts[0]
             payload["thread"] = [{"body": part} for part in thread_parts[1:]]
@@ -1412,21 +1519,7 @@ def publish_via_postproxy(post: dict, settings: dict, platforms: List[str]) -> d
             payload["platforms"] = params
         return postproxy_post(settings, "/posts", payload, timeout=180)
 
-    twitter_needs_own_batch = "twitter" in publishable and (
-        len(twitter_parts) > 1 or len((post.get("text") or "")) > TWITTER_CHAR_LIMIT
-    )
-    remaining = list(publishable)
-    batches = []
-    if twitter_needs_own_batch:
-        remaining = [p for p in remaining if p != "twitter"]
-        batches.append((["twitter"], bool(media_url), twitter_parts[0], twitter_parts))
-    if media_url and "google_business" in remaining:
-        media_platforms = [p for p in remaining if p != "google_business"]
-        if media_platforms:
-            batches.append((media_platforms, True, post.get("text", ""), None))
-        batches.append((["google_business"], False, post.get("text", ""), None))
-    elif remaining:
-        batches.append((remaining, bool(media_url), post.get("text", ""), None))
+    batches = plan_postproxy_batches(post, publishable, has_media)
 
     results = [publish_batch(batch_platforms, include_media, body, thread_parts) for batch_platforms, include_media, body, thread_parts in batches]
     platform_results = []
@@ -2183,10 +2276,15 @@ def download_and_trim_original_video(
     return ensure_video_under_limit(downloaded_file, max_duration_sec=max_duration_sec)
 
 
-def resolve_autopilot_copy(top_trend: dict, settings: dict) -> tuple:
+def resolve_autopilot_copy(top_trend: dict, settings: dict) -> dict:
     """Use scan copy when present; otherwise Gemini-repurpose the source URL."""
     linkedin_text = (top_trend.get("recreated_linkedin_post") or "").strip()
     twitter_thread = top_trend.get("recreated_twitter_thread") or None
+    instagram_caption = (
+        (top_trend.get("recreated_instagram_caption") or "").strip()
+        or (top_trend.get("repurposed_instagram_caption") or "").strip()
+    )
+    suggested_hashtags = list(top_trend.get("suggested_hashtags") or [])
     if isinstance(twitter_thread, list):
         twitter_thread = [t for t in twitter_thread if str(t).strip()]
         if not twitter_thread:
@@ -2200,12 +2298,24 @@ def resolve_autopilot_copy(top_trend: dict, settings: dict) -> tuple:
                 linkedin_text = (content.repurposed_linkedin_post or "").strip()
             if not twitter_thread:
                 twitter_thread = content.repurposed_twitter_thread
+            if not instagram_caption:
+                instagram_caption = (getattr(content, "repurposed_instagram_caption", None) or "").strip()
+            extra_tags = getattr(content, "suggested_hashtags", None)
+            if extra_tags:
+                suggested_hashtags.extend(extra_tags)
         except Exception as copy_err:
             logger.error(f"Autopilot: repurpose_video_link_copy failed: {copy_err}")
     if not linkedin_text:
         credit = f"Inspired by the original: {source_url}" if source_url else "Inspired by a viral moment."
         linkedin_text = f"{title}\n\n{credit}"
-    return linkedin_text, twitter_thread
+    if not suggested_hashtags:
+        suggested_hashtags = []
+    return {
+        "linkedin_text": linkedin_text,
+        "twitter_thread": twitter_thread,
+        "instagram_caption": instagram_caption,
+        "suggested_hashtags": suggested_hashtags,
+    }
 
 class LoadOriginalVideoRequest(BaseModel):
     url: str
@@ -2554,11 +2664,16 @@ async def publish_post_to_platforms(post: dict, settings: dict, bypass_daily_lim
             logger.exception("PostProxy publish failed")
             return {"successes": [], "errors": [f"PostProxy: {str(pp_err)}"], "tweet_id": None, "tweet_ids": None}
 
-    if post.get("video_path") and any(p in platforms for p in ("instagram", "tiktok", "youtube")):
+    if post.get("video_path") and any(uses_vertical_media(p) for p in platforms):
         try:
             ensure_vertical_video_variant(post)
         except Exception as variant_err:
-            logger.warning(f"Could not prepare vertical platform variant before publishing: {variant_err}")
+            logger.warning(f"Could not prepare 9:16 variant before publishing: {variant_err}")
+
+    twitter_parts = None
+    if "twitter" in platforms:
+        twitter_body, twitter_parts = resolve_publish_body(post, "twitter")
+    linkedin_text = apply_platform_hashtags(post, "linkedin") if "linkedin" in platforms else post.get("text", "")
 
     # 1. Post to Twitter
     if "twitter" in platforms:
@@ -2582,10 +2697,11 @@ async def publish_post_to_platforms(post: dict, settings: dict, bypass_daily_lim
                     if media_id:
                         media_ids = [media_id]
 
-                if post.get("thread"):
+                thread_to_post = twitter_parts if twitter_parts and len(twitter_parts) > 1 else None
+                if thread_to_post:
                     prev_id = None
                     ids_collected = []
-                    for idx, tweet in enumerate(post["thread"]):
+                    for idx, tweet in enumerate(thread_to_post):
                         if idx == 0 and media_ids:
                             res = client.create_tweet(text=tweet, media_ids=media_ids)
                         elif prev_id:
@@ -2597,10 +2713,11 @@ async def publish_post_to_platforms(post: dict, settings: dict, bypass_daily_lim
                     tweet_ids = ids_collected
                     tweet_id = ids_collected[0] if ids_collected else None
                 else:
+                    tweet_text = (twitter_parts[0] if twitter_parts else twitter_body) if twitter_parts or twitter_body else post.get("text", "")
                     if media_ids:
-                        res = client.create_tweet(text=post["text"], media_ids=media_ids)
+                        res = client.create_tweet(text=tweet_text, media_ids=media_ids)
                     else:
-                        res = client.create_tweet(text=post["text"])
+                        res = client.create_tweet(text=tweet_text)
                     tweet_id = res.data["id"]
                 successes.append("twitter")
         except Exception as tw_err:
@@ -2635,7 +2752,7 @@ async def publish_post_to_platforms(post: dict, settings: dict, bypass_daily_lim
                         "specificContent": {
                             "com.linkedin.ugc.ShareContent": {
                                 "shareCommentary": {
-                                    "text": post["text"]
+                                    "text": linkedin_text
                                 },
                                 "shareMediaCategory": "VIDEO",
                                 "media": [
@@ -2655,7 +2772,7 @@ async def publish_post_to_platforms(post: dict, settings: dict, bypass_daily_lim
                         "specificContent": {
                             "com.linkedin.ugc.ShareContent": {
                                 "shareCommentary": {
-                                    "text": post["text"]
+                                    "text": linkedin_text
                                 },
                                 "shareMediaCategory": "NONE"
                             }
@@ -2685,7 +2802,9 @@ async def publish_post_to_platforms(post: dict, settings: dict, bypass_daily_lim
                     logger.info(f"[MOCK] Post to {platform_name}")
                     successes.append(f"{platform_name} (mock)")
                 else:
-                    publish_fn(post, settings)
+                    platform_post = dict(post)
+                    platform_post["text"] = apply_platform_hashtags(post, platform_name)
+                    publish_fn(platform_post, settings)
                     successes.append(platform_name)
             except Exception as plat_err:
                 logger.exception(f"{platform_name} post failed")
@@ -2760,7 +2879,11 @@ async def execute_autonomous_autopost(settings: dict, forced_trend: Optional[dic
 
     source_url = (top_trend.get("url") or "").strip()
     title = top_trend.get("title") or "Viral clip"
-    linkedin_text, twitter_thread = await loop.run_in_executor(None, resolve_autopilot_copy, top_trend, settings)
+    copy = await loop.run_in_executor(None, resolve_autopilot_copy, top_trend, settings)
+    linkedin_text = copy["linkedin_text"]
+    twitter_thread = copy["twitter_thread"]
+    instagram_caption = copy.get("instagram_caption") or ""
+    suggested_hashtags = copy.get("suggested_hashtags") or []
 
     # Repurpose the ORIGINAL viral video: download + trim < 60s. Do not generate a new clip.
     generated_video_path = None
@@ -2784,12 +2907,11 @@ async def execute_autonomous_autopost(settings: dict, forced_trend: Optional[dic
 
     platforms = settings.get("autonomous_platforms", ["twitter", "linkedin"])
 
-    # Instagram Reels and TikTok require vertical (9:16) video — the main render above is
-    # landscape (matches Twitter/LinkedIn/YouTube/Facebook fine), so render a vertical variant
-    # specifically for those two platforms when they're selected. Failure here is non-fatal:
-    # falls back to the landscape video rather than blocking the whole autopilot run.
+    # LinkedIn and X keep the landscape download. Every other social (IG, TikTok,
+    # YouTube Shorts, Facebook, Threads) needs a 9:16 variant. Failure is non-fatal:
+    # those platforms fall back to landscape rather than blocking the whole run.
     vertical_video_path = None
-    if generated_video_path and any(p in platforms for p in ("instagram", "tiktok")):
+    if generated_video_path and any(uses_vertical_media(p) for p in platforms):
         try:
             abs_source = resolve_local_video_path(generated_video_path)
             vertical_filename = f"{os.path.splitext(os.path.basename(generated_video_path))[0]}_vertical_9x16.mp4"
@@ -2797,9 +2919,9 @@ async def execute_autonomous_autopost(settings: dict, forced_trend: Optional[dic
             font_path = get_font_path()
             render_variant_with_fallback(abs_source, abs_vertical, 1080, 1920, "", font_path, 320)
             vertical_video_path = f"/static/assets/generated/{vertical_filename}"
-            logger.info(f"Autopilot: Rendered 9:16 vertical variant for Instagram/TikTok: {vertical_video_path}")
+            logger.info(f"Autopilot: Rendered 9:16 vertical variant for Shorts/Reels/Facebook: {vertical_video_path}")
         except Exception as e:
-            logger.error(f"Autopilot: Failed to render vertical variant, Instagram/TikTok will use the landscape video instead: {e}")
+            logger.error(f"Autopilot: Failed to render vertical variant; vertical platforms will fall back to landscape: {e}")
 
     original_generated_video_path = generated_video_path
     if generated_video_path and settings.get("viral_template_enabled", False):
@@ -2836,6 +2958,9 @@ async def execute_autonomous_autopost(settings: dict, forced_trend: Optional[dic
         "platform": ",".join(platforms) if platforms else "none",
         "text": linkedin_text,
         "thread": twitter_thread,
+        "instagram_caption": instagram_caption,
+        "suggested_hashtags": suggested_hashtags,
+        "title": title,
         "scheduled_time": now.isoformat(),
         "campaign_title": f"Autonomous: {title}",
         "video_path": generated_video_path,
@@ -2848,6 +2973,12 @@ async def execute_autonomous_autopost(settings: dict, forced_trend: Optional[dic
         "error_message": None if generated_video_path else f"Original video missing: {video_error or 'download failed'}",
         "posted_at": None
     }
+    # Stage the LinkedIn body with guaranteed tags so the queue preview matches live.
+    log_post["text"] = apply_platform_hashtags(log_post, "linkedin")
+    if twitter_thread:
+        log_post["thread"] = apply_platform_twitter_thread(log_post)
+    if instagram_caption:
+        log_post["instagram_caption"] = apply_platform_hashtags(log_post, "instagram")
 
     require_approval = settings.get("require_autopilot_approval", True)
     if require_approval:
