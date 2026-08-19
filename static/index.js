@@ -213,9 +213,12 @@ document.addEventListener("DOMContentLoaded", () => {
         (socials || []).forEach(item => { if (item && item.platform) byPlatform[item.platform] = item; });
         Object.keys(SOCIAL_BADGE_IDS).forEach(platform => {
             const channel = byPlatform[platform];
-            if (channel && channel.connected) {
-                const label = channel.status === "EXPIRED" ? "EXPIRED" : "LIVE";
-                paintBadge(document.getElementById(SOCIAL_BADGE_IDS[platform]), label, label === "LIVE" ? "live" : "check");
+            const live = !!(channel && (channel.live || channel.status === "LIVE" || (channel.profile_status === "active")));
+            if (live) {
+                paintBadge(document.getElementById(SOCIAL_BADGE_IDS[platform]), "LIVE", "live");
+            } else if (channel && channel.connected) {
+                const label = channel.status === "EXPIRED" ? "EXPIRED" : "INACTIVE";
+                paintBadge(document.getElementById(SOCIAL_BADGE_IDS[platform]), label, label === "EXPIRED" ? "check" : "off");
             } else {
                 paintBadge(document.getElementById(SOCIAL_BADGE_IDS[platform]), native[platform] ? "CHECK" : "INACTIVE", native[platform] ? "check" : "off");
             }
@@ -623,10 +626,10 @@ document.addEventListener("DOMContentLoaded", () => {
         btn.addEventListener("click", () => connectPostProxyPlatform(btn.dataset.platform, btn.dataset.reconnect === "true"));
     });
     const postproxyReturn = new URLSearchParams(window.location.search).get("postproxy");
-    if (postproxyReturn === "connected") {
+    if (["ok", "connected"].includes(postproxyReturn)) {
         showToast("PostProxy account connected. Syncing profiles...");
         refreshPostProxyProfiles();
-    } else if (postproxyReturn === "failed") {
+    } else if (["failure", "failed"].includes(postproxyReturn)) {
         showToast("PostProxy connection was cancelled or failed.", true);
     }
 

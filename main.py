@@ -1219,13 +1219,16 @@ def build_social_channel_status(settings: Optional[dict] = None, state: Optional
         placement = (state.get("placements") or {}).get(key) or {}
         if profile:
             raw_status = (profile.get("status") or "active").lower()
-            badge = "EXPIRED" if raw_status == "expired" else ("INACTIVE" if raw_status == "inactive" else "LIVE")
+            live = raw_status == "active"
+            badge = "LIVE" if live else ("EXPIRED" if raw_status == "expired" else "INACTIVE")
         else:
+            live = False
             badge = "INACTIVE"
         channels.append({
             "platform": key,
             "label": label,
             "status": badge,
+            "live": live,
             "connected": bool(profile),
             "source": "postproxy" if profile else None,
             "profile_id": (profile or {}).get("id"),
@@ -1241,11 +1244,13 @@ def build_social_channel_status(settings: Optional[dict] = None, state: Optional
             continue
         placement = (state.get("placements") or {}).get(platform) or {}
         raw_status = (profile.get("status") or "active").lower()
-        badge = "EXPIRED" if raw_status == "expired" else ("INACTIVE" if raw_status == "inactive" else "LIVE")
+        live = raw_status == "active"
+        badge = "LIVE" if live else ("EXPIRED" if raw_status == "expired" else "INACTIVE")
         channels.append({
             "platform": platform,
             "label": platform.replace("_", " ").title(),
             "status": badge,
+            "live": live,
             "connected": True,
             "source": "postproxy",
             "profile_id": profile.get("id"),
@@ -1257,6 +1262,63 @@ def build_social_channel_status(settings: Optional[dict] = None, state: Optional
             "expires_at": profile.get("expires_at"),
         })
     return channels
+
+
+def sanitize_postproxy_profile(profile: dict, placements: Optional[List[dict]] = None) -> dict:
+    return {
+        "id": profile.get("id") or "",
+        "name": profile.get("name") or "",
+        "platform": platform_to_postproxy(profile.get("platform") or ""),
+        "status": profile.get("status") or "",
+        "placements": [
+            {"id": item.get("id"), "name": item.get("name") or "", "metadata": item.get("metadata") or {}}
+            for item in (placements or [])
+            if isinstance(item, dict)
+        ],
+    }
+
+def build_postproxy_status_payload(settings: Optional[dict] = None, live: bool = False) -> dict:
+    settings = settings or load_settings()
+    error = None
+    state = load_postproxy_state()
+    if live and postproxy_key_configured(settings):
+        try:
+            state = sync_postproxy_account(settings)
+        except Exception as e:
+            error = sanitize_postproxy_error(str(e))
+            state = load_postproxy_state()
+    elif not state.get("profiles") and postproxy_key_configured(settings):
+        try:
+            state = sync_postproxy_account(settings)
+        except Exception as e:
+            error = sanitize_postproxy_error(str(e))
+            state = load_postproxy_state()
+    socials = build_social_channel_status(settings, state)
+    placements_by_platform = state.get("placements") or {}
+    profiles = []
+    for profile in state.get("profiles") or []:
+        platform = platform_to_postproxy(profile.get("platform") or "")
+        placement_info = placements_by_platform.get(platform) or {}
+        profiles.append(sanitize_postproxy_profile(profile, placement_info.get("placements") or []))
+    channels = {item["platform"]: item for item in socials if item.get("platform")}
+    error = error or state.get("auth_error")
+    return {
+        "status": "SUCCESS" if not error else "ERROR",
+        "configured": postproxy_key_configured(settings),
+        "enabled": bool(settings.get("postproxy_enabled")),
+        "group_configured": bool(state.get("profile_group_id") or settings.get("postproxy_profile_group_id") or os.environ.get("POSTPROXY_PROFILE_GROUP_ID")),
+        "profile_group_id": state.get("profile_group_id") or settings.get("postproxy_profile_group_id") or os.environ.get("POSTPROXY_PROFILE_GROUP_ID") or "",
+        "key_valid": state.get("key_valid"),
+        "profiles": profiles,
+        "channels": channels,
+        "socials": socials,
+        "facebook_page_id": (placements_by_platform.get("facebook") or {}).get("placement_id"),
+        "linkedin_organization_id": (placements_by_platform.get("linkedin") or {}).get("placement_id"),
+        "has_facebook_page_id": bool((placements_by_platform.get("facebook") or {}).get("placement_id")),
+        "has_linkedin_organization_id": bool((placements_by_platform.get("linkedin") or {}).get("placement_id")),
+        "error": error,
+        "synced_at": state.get("synced_at"),
+    }
 
 def build_capabilities_payload(settings: Optional[dict] = None, sync: bool = False) -> dict:
     settings = settings or load_settings()
@@ -1503,25 +1565,27 @@ def get_postproxy_post_status(post_id: str):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/api/postproxy/status")
+def get_postproxy_status():
+    return build_postproxy_status_payload(live=True)
+
 @app.post("/api/postproxy/sync")
 def sync_postproxy_profiles():
     settings = load_settings()
     try:
         state = sync_postproxy_account(settings)
-        return {
-            "status": "SUCCESS",
-            "enabled": bool(settings.get("postproxy_enabled")),
-            "configured": postproxy_key_configured(settings),
-            "key_valid": state.get("key_valid"),
-            "profile_group_id": state.get("profile_group_id") or "",
+        payload = build_postproxy_status_payload(settings, live=False)
+        payload.update({
             "groups": state.get("groups") or [],
-            "profiles": state.get("profiles") or [],
             "placements": state.get("placements") or {},
-            "socials": build_social_channel_status(settings, state),
-            "synced_at": state.get("synced_at"),
-        }
+        })
+        return payload
     except Exception as e:
-        raise HTTPException(status_code=400, detail=sanitize_postproxy_error(str(e)))
+        message = sanitize_postproxy_error(str(e))
+        payload = build_postproxy_status_payload(settings, live=False)
+        payload["status"] = "ERROR"
+        payload["error"] = message
+        return payload
 
 @app.get("/api/capabilities")
 def get_capabilities():
@@ -1532,14 +1596,19 @@ def get_credentials():
     return build_capabilities_payload(sync=False)
 
 @app.get("/api/postproxy/callback")
-def postproxy_oauth_callback(failure: Optional[str] = None, error_code: Optional[str] = None):
-    if failure:
-        return RedirectResponse(url=f"/?postproxy=failed&error_code={error_code or 'unknown'}")
+def postproxy_oauth_callback(request: Request, failure: Optional[str] = None, error_code: Optional[str] = None):
+    params = request.query_params
+    failed = bool(failure or params.get("error") or params.get("error_description") or params.get("error_code"))
+    status_val = (params.get("status") or params.get("postproxy") or "").lower()
+    if status_val in ("failure", "failed", "error", "denied"):
+        failed = True
+    if failed:
+        return RedirectResponse(url=f"/?postproxy=failure&error_code={error_code or params.get('error_code') or 'unknown'}")
     try:
         sync_postproxy_account(load_settings())
     except Exception as e:
         logger.warning(f"PostProxy OAuth callback sync failed: {sanitize_postproxy_error(str(e))}")
-    return RedirectResponse(url="/?postproxy=connected")
+    return RedirectResponse(url="/?postproxy=ok")
 
 @app.post("/api/postproxy/connect")
 def create_postproxy_connection(req: PostProxyConnectRequest, request: Request):
@@ -3272,7 +3341,7 @@ def build_live_integration_status(settings: dict, state: dict) -> List[dict]:
     pp_platforms = {
         platform_to_postproxy((profile or {}).get("platform") or "")
         for profile in (load_postproxy_state().get("profiles") or [])
-        if (profile or {}).get("platform")
+        if (profile or {}).get("platform") and str((profile or {}).get("status") or "").lower() == "active"
     }
     rows = []
     for key, name, required, capability in specs:
