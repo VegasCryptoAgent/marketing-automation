@@ -3,7 +3,7 @@ import time
 import json
 import logging
 import urllib.parse
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
@@ -951,7 +951,7 @@ def run_fal_video_generation(job_id: str, prompt: str, settings: Dict[str, Any],
             update_job_status(job_id, "FAILED", 0, f"Unsupported FAL video engine: {engine}")
             return
 
-        api_key = settings.get("fal_api_key") or os.environ.get("FAL_KEY")
+        api_key = settings.get("fal_api_key") or os.environ.get("FAL_API_KEY") or os.environ.get("FAL_KEY")
         if not api_key:
             update_job_status(job_id, "FAILED", 0, "Missing FAL API Key. Add FAL_KEY or configure it in Settings.")
             return
@@ -1058,6 +1058,67 @@ def normalize_video_duration(engine: str, duration: int) -> int:
     return max(8, min(duration or 10, 15))
 
 
+
+def gemini_veo_config_kwargs() -> Dict[str, Any]:
+    """Gemini API Veo rejects duration_seconds. Keep only supported fields."""
+    return {
+        "aspect_ratio": "16:9",
+        "number_of_videos": 1,
+    }
+
+
+def build_gemini_veo_videos_config():
+    return types.GenerateVideosConfig(**gemini_veo_config_kwargs())
+
+
+def veo_prompt_with_duration_policy(prompt: str, duration: int) -> str:
+    prompt = prompt or ""
+    if int(duration or 0) == 8 and "8-second cinematic clip" not in prompt.lower():
+        return f"8-second cinematic clip. {prompt}".strip()
+    return prompt
+
+
+def _error_mentions_duration_seconds(err: Exception) -> bool:
+    return "duration_seconds" in str(err).lower()
+
+
+def _looks_like_veo_model_id_error(err: Exception) -> bool:
+    text = str(err).lower()
+    if "duration_seconds" in text:
+        return False
+    needles = (
+        "model",
+        "not found",
+        "not supported",
+        "not available",
+        "unknown model",
+        "invalid model",
+        "does not exist",
+    )
+    return any(n in text for n in needles)
+
+
+def fal_key_present(settings: Dict[str, Any]) -> bool:
+    return bool(
+        (settings or {}).get("fal_api_key")
+        or os.environ.get("FAL_API_KEY")
+        or os.environ.get("FAL_KEY")
+    )
+
+
+def next_video_fallback_engine(engine: str, error_text: str, fal_available: bool) -> Optional[str]:
+    """Labeled fallback only: Veo Lite model-id -> google_veo, then FAL if a key already exists."""
+    engine = engine or ""
+    err = (error_text or "").lower()
+    if "duration_seconds" in err:
+        return None
+    if engine == "google_veo_lite" and _looks_like_veo_model_id_error(Exception(error_text or "")):
+        return "google_veo"
+    if engine.startswith("google_veo") and fal_available:
+        return "fal_hailuo_23"
+    return None
+
+
 def run_video_generation(
     job_id: str,
     prompt: str,
@@ -1072,6 +1133,8 @@ def run_video_generation(
     if engine in FAL_TEXT_VIDEO_ENGINES:
         run_fal_video_generation(job_id, prompt, settings, engine, duration)
         return
+
+    prompt = veo_prompt_with_duration_policy(prompt, duration)
 
     try:
         api_key = settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY")
@@ -1097,17 +1160,35 @@ def run_video_generation(
         
         update_job_status(job_id, "PROCESSING", 25, f"Submitting video generation request to {engine_label}...")
         
-        config = types.GenerateVideosConfig(
-            aspect_ratio="16:9",
-            number_of_videos=1,
-            duration_seconds=8,
-        )
+        # Gemini API Veo rejects duration_seconds; Lite is a fixed 8s clip.
+        config = build_gemini_veo_videos_config()
 
-        operation = client.models.generate_videos(
-            model=model_name,
-            prompt=prompt,
-            config=config
-        )
+        try:
+            operation = client.models.generate_videos(
+                model=model_name,
+                prompt=prompt,
+                config=config
+            )
+        except Exception as gen_err:
+            if _error_mentions_duration_seconds(gen_err):
+                update_job_status(job_id, "PROCESSING", 25, f"{engine_label} rejected duration_seconds; retrying without it...")
+                operation = client.models.generate_videos(
+                    model=model_name,
+                    prompt=prompt,
+                    config=build_gemini_veo_videos_config(),
+                )
+            else:
+                fallback = next_video_fallback_engine(engine, str(gen_err), fal_key_present(settings))
+                if fallback:
+                    update_job_status(
+                        job_id,
+                        "PROCESSING",
+                        15,
+                        f"{engine_label} failed ({gen_err}); labeled fallback to {fallback}.",
+                    )
+                    run_video_generation(job_id, prompt, settings, fallback, duration)
+                    return
+                raise
 
         update_job_status(job_id, "PROCESSING", 45, "Video rendering started. Polling status...")
 
@@ -1190,11 +1271,21 @@ def run_video_generation(
             "SUCCESS", 
             100, 
             "Video generation complete!", 
-            result={"video_path": video_web_path}
+            result={"video_path": video_web_path, "engine": engine, "engine_label": engine_label}
         )
 
     except Exception as e:
         logger.exception("Error in video generation")
+        fallback = next_video_fallback_engine(engine, str(e), fal_key_present(settings))
+        if fallback:
+            update_job_status(
+                job_id,
+                "PROCESSING",
+                15,
+                f"Video generation failed ({e}); labeled fallback to {fallback}.",
+            )
+            run_video_generation(job_id, prompt, settings, fallback, duration)
+            return
         update_job_status(job_id, "FAILED", 0, f"Video generation failed: {str(e)}")
 
 def build_reframe_filter(width: int, height: int, text: str, font_path: str, y_offset: int) -> str:
