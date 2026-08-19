@@ -319,16 +319,39 @@ PLATFORM_DOMAINS = {
     "reddit": ("reddit.com",),
 }
 
+def _youtube_video_id(url: str) -> str:
+    """Return the video id for a well-formed youtube.com/watch or youtu.be URL."""
+    import urllib.parse as _up
+    parsed = _up.urlparse(url)
+    host = (parsed.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    vid = ""
+    if host == "youtube.com" or host.endswith(".youtube.com"):
+        if parsed.path.rstrip("/") == "/watch":
+            vid = (_up.parse_qs(parsed.query).get("v") or [""])[0]
+    elif host == "youtu.be":
+        trimmed = parsed.path.strip("/")
+        vid = trimmed.split("/")[0] if trimmed else ""
+    if vid and len(vid) >= 11 and all(c.isalnum() or c in "-_" for c in vid):
+        return vid
+    return ""
+
 def check_url_valid(url: str, platform: str = "") -> bool:
     import subprocess
     import urllib.parse as _up
     if not url or not url.startswith("http"):
         return False
-    host = _up.urlparse(url).netloc.lower()
-    if host in {"google.com", "www.google.com"} or "/search" in _up.urlparse(url).path:
+    parsed = _up.urlparse(url)
+    host = parsed.netloc.lower()
+    if host in {"google.com", "www.google.com"} or "/search" in parsed.path:
         return False
     if any(p in url for p in MOCK_URL_PATTERNS):
         return False
+    # Well-formed YouTube watch URLs are valid without yt-dlp. Railway bot-blocks
+    # or times out `yt-dlp --simulate`, which previously rejected real videos.
+    if _youtube_video_id(url):
+        return True
     platform_lower = (platform or "").lower()
     for key, domains in PLATFORM_DOMAINS.items():
         if key in platform_lower or (key == "twitter" and "x" in platform_lower.replace("twitter/x", "twitter")):
@@ -642,6 +665,8 @@ def run_live_trend_scanner(
             if not check_url_valid(trend.url, trend.platform):
                 logger.info(f"Invalid or mock URL detected: {trend.url}. Resolving dynamically for: {trend.title}")
                 trend.url = resolve_trend_mock_url(trend.title, trend.platform)
+                if _youtube_video_id(trend.url):
+                    trend.platform = "YouTube"
             if check_url_valid(trend.url, trend.platform):
                 verified_trends.append(trend)
             else:
