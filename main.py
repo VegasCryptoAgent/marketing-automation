@@ -3715,7 +3715,7 @@ def call_gemini_json(settings: dict, prompt: str, fallback: Any, use_search: boo
     else:
         config_kwargs["response_mime_type"] = "application/json"
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         contents=prompt,
         config=types.GenerateContentConfig(**config_kwargs)
     )
