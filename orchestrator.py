@@ -63,7 +63,7 @@ FAL_TEXT_VIDEO_ENGINES = {
     "fal_seedance_fast": {
         "model": "fal-ai/bytedance/seedance/v1/pro/fast/text-to-video",
         "label": "FAL Seedance 1.0 Pro Fast",
-        "durations": list(range(2, 13)),
+        "durations": list(range(8, 13)),
         "payload": lambda prompt, duration: {
             "prompt": prompt,
             "aspect_ratio": "16:9",
@@ -75,7 +75,7 @@ FAL_TEXT_VIDEO_ENGINES = {
     "fal_ltx_fast": {
         "model": "fal-ai/ltx-2/text-to-video/fast",
         "label": "FAL LTX Video 2.0 Fast",
-        "durations": [6, 8, 10, 12, 14, 16, 18, 20],
+        "durations": [8, 10, 12, 14, 16, 18, 20],
         "payload": lambda prompt, duration: {
             "prompt": prompt,
             "duration": duration,
@@ -667,7 +667,7 @@ def run_live_trend_scanner(
         logger.exception("Error in live trend scanner")
         update_job_status(job_id, "FAILED", 0, f"Search pipeline failed: {str(e)}")
 
-def run_runway_rendering(job_id: str, prompt: str, settings: Dict[str, Any], duration: int = 5):
+def run_runway_rendering(job_id: str, prompt: str, settings: Dict[str, Any], duration: int = 10):
     try:
         api_key = settings.get("runway_api_key")
         if not api_key:
@@ -820,7 +820,7 @@ def run_runway_rendering(job_id: str, prompt: str, settings: Dict[str, Any], dur
                         os.remove(cp)
 
         else:
-            # Single clip generation (5s or 10s)
+            # Single clip generation (10s typical; 5s previews retired)
             update_job_status(job_id, "PROCESSING", 10, f"Submitting video task to Runway ({duration}s)...")
             
             url = "https://api.dev.runwayml.com/v1/text_to_video"
@@ -919,7 +919,7 @@ def _extract_fal_video_url(result: Dict[str, Any]) -> str:
             return first
     raise ValueError("FAL result did not include a downloadable video URL.")
 
-def run_fal_video_generation(job_id: str, prompt: str, settings: Dict[str, Any], engine: str, duration: int = 6):
+def run_fal_video_generation(job_id: str, prompt: str, settings: Dict[str, Any], engine: str, duration: int = 10):
     try:
         engine_config = FAL_TEXT_VIDEO_ENGINES.get(engine)
         if not engine_config:
@@ -1013,13 +1013,34 @@ def run_fal_video_generation(job_id: str, prompt: str, settings: Dict[str, Any],
         logger.exception("Error in FAL video generation")
         update_job_status(job_id, "FAILED", 0, f"FAL video generation failed: {str(e)}")
 
+def normalize_video_duration(engine: str, duration: int) -> int:
+    """No 5s previews. Veo is 8s. Other engines 8–10 default, model max if documented higher."""
+    engine = engine or ""
+    try:
+        duration = int(duration)
+    except (TypeError, ValueError):
+        duration = 0
+    if engine.startswith("google_veo"):
+        return 8
+    if engine == "runway_gen3":
+        return 30 if duration == 30 else 10
+    cfg = FAL_TEXT_VIDEO_ENGINES.get(engine)
+    if cfg:
+        supported = list(cfg["durations"])
+        preferred = [d for d in supported if d >= 8] or supported
+        target = duration if duration >= 8 else (10 if 10 in preferred else preferred[-1])
+        return min(preferred, key=lambda candidate: abs(candidate - target))
+    return max(8, min(duration or 10, 15))
+
+
 def run_video_generation(
     job_id: str,
     prompt: str,
     settings: Dict[str, Any],
     engine: str = "google_veo",
-    duration: int = 5
+    duration: int = 8
 ):
+    duration = normalize_video_duration(engine, duration)
     if engine == "runway_gen3":
         run_runway_rendering(job_id, prompt, settings, duration)
         return
@@ -1053,7 +1074,8 @@ def run_video_generation(
         
         config = types.GenerateVideosConfig(
             aspect_ratio="16:9",
-            number_of_videos=1
+            number_of_videos=1,
+            duration_seconds=8,
         )
 
         operation = client.models.generate_videos(

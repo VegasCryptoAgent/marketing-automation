@@ -1808,25 +1808,29 @@ document.addEventListener("DOMContentLoaded", () => {
         const isHailuo = engine === "fal_hailuo_23" || engine === "fal_hailuo_02";
         const isSeedance = engine === "fal_seedance_fast";
         const isLtx = engine === "fal_ltx_fast";
+        const isVeo = engine === "google_veo" || engine === "google_veo_lite" || engine === "google_veo_fast";
         const options = durationSelect.querySelectorAll("option");
+        const allowed = (
+            isVeo ? ["8"] :
+            isRunway ? ["10", "30"] :
+            isHailuo ? ["10"] :
+            isSeedance ? ["8", "10", "12"] :
+            isLtx ? ["8", "10", "12", "14", "16", "18", "20"] :
+            ["8", "10", "15"]
+        );
+        const engineDefault = isVeo ? "8" : (isHailuo ? "10" : (isRunway ? "10" : "10"));
         options.forEach(opt => {
             const value = opt.value;
-            const enabled = (
-                (isRunway && ["5", "10", "30"].includes(value)) ||
-                (isHailuo && ["6", "10"].includes(value)) ||
-                (isSeedance && ["5", "6", "10", "12"].includes(value)) ||
-                (isLtx && ["6", "8", "10", "12", "14", "16", "18", "20"].includes(value)) ||
-                (!isRunway && !isHailuo && !isSeedance && !isLtx && value === "5")
-            );
+            const enabled = allowed.includes(value);
             if (enabled) {
                 opt.removeAttribute("disabled");
             } else {
                 opt.setAttribute("disabled", "true");
             }
         });
-        if (durationSelect.selectedOptions[0] && durationSelect.selectedOptions[0].disabled) {
-            const firstEnabled = Array.from(options).find(opt => !opt.disabled);
-            if (firstEnabled) durationSelect.value = firstEnabled.value;
+        const currentDisabled = durationSelect.selectedOptions[0] && durationSelect.selectedOptions[0].disabled;
+        if (!durationSelect.value || currentDisabled || durationSelect.value === "5") {
+            durationSelect.value = allowed.includes(engineDefault) ? engineDefault : allowed[0];
         }
     }
 
@@ -3367,18 +3371,20 @@ document.addEventListener("DOMContentLoaded", () => {
             if (el) el.addEventListener("click", handler);
         };
         const engineDurations = {
-            fal_hailuo_02: [6, 10],
-            fal_hailuo_23: [6, 10],
-            fal_seedance_fast: [5, 6, 10, 12],
-            fal_ltx_fast: [6, 8, 10, 12, 14, 16, 18, 20],
-            google_veo_lite: [5]
+            fal_hailuo_02: [10],
+            fal_hailuo_23: [10],
+            fal_seedance_fast: [8, 10, 12],
+            fal_ltx_fast: [8, 10, 12, 14, 16, 18, 20],
+            google_veo: [8],
+            google_veo_lite: [8],
+            google_veo_fast: [8]
         };
         const updateGrowthDurations = () => {
             const engine = byId("growth-video-engine")?.value || "fal_hailuo_02";
             const durationSelect = byId("growth-video-duration");
             if (!durationSelect) return;
             const previous = durationSelect.value;
-            const values = engineDurations[engine] || [6, 10];
+            const values = engineDurations[engine] || [8, 10];
             durationSelect.innerHTML = values.map(v => `<option value="${v}">${v}s each</option>`).join("");
             durationSelect.value = values.includes(parseInt(previous, 10)) ? previous : String(values[values.length - 1]);
         };

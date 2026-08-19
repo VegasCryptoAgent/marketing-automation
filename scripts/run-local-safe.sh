@@ -9,6 +9,6 @@ exec railway run env \
   REQUIRE_AUTOPILOT_APPROVAL=true \
   DISABLE_BACKGROUND_SCHEDULER=true \
   AUTONOMOUS_VIDEO_ENGINE=google_veo_lite \
-  AUTONOMOUS_VIDEO_DURATION=5 \
+  AUTONOMOUS_VIDEO_DURATION=8 \
   PUBLIC_BASE_URL="http://127.0.0.1:${PORT}" \
   .venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port "${PORT}" --reload

@@ -274,11 +274,12 @@
                                       <div class="input-group" style="margin-bottom: 0.6rem; text-align: left;">
                                           <label for="concept-video-duration" style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Select Video Duration</label>
                                           <select id="concept-video-duration" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
-                                              <option value="5">5 seconds (Quick Preview)</option>
+                                              <option value="5" disabled>5 seconds (retired)</option>
                                               <option value="6" disabled>6 seconds (FAL Standard)</option>
-                                              <option value="8" disabled>8 seconds (FAL LTX)</option>
-                                              <option value="10" disabled>10 seconds</option>
+                                              <option value="8" selected>8 seconds</option>
+                                              <option value="10">10 seconds</option>
                                               <option value="12" disabled>12 seconds (Seedance / LTX)</option>
+                                              <option value="15">15 seconds</option>
                                               <option value="14" disabled>14 seconds (FAL LTX)</option>
                                               <option value="16" disabled>16 seconds (FAL LTX)</option>
                                               <option value="18" disabled>18 seconds (FAL LTX)</option>
@@ -476,12 +477,13 @@
                                           <div class="input-group" style="margin-bottom: 0.6rem; text-align: left;">
                                               <label for="trend-video-duration" style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Select Video Duration</label>
                                               <select id="trend-video-duration" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
-                                                  <option value="5">5 seconds (Quick Preview)</option>
+                                                  <option value="5" disabled>5 seconds (retired)</option>
                                                   <option value="6" disabled>6 seconds (FAL Standard)</option>
-                                                  <option value="8" disabled>8 seconds (FAL LTX)</option>
-                                                  <option value="10" disabled>10 seconds</option>
+                                                  <option value="8" selected>8 seconds</option>
+                                                  <option value="10">10 seconds</option>
                                                   <option value="12" disabled>12 seconds (Seedance / LTX)</option>
-                                                  <option value="14" disabled>14 seconds (FAL LTX)</option>
+                                                  <option value="15">15 seconds</option>
+                                              <option value="14" disabled>14 seconds (FAL LTX)</option>
                                                   <option value="16" disabled>16 seconds (FAL LTX)</option>
                                                   <option value="18" disabled>18 seconds (FAL LTX)</option>
                                                   <option value="20" disabled>20 seconds (FAL LTX Max)</option>
@@ -933,12 +935,13 @@
                         <div class="input-group" style="margin-bottom: 1.25rem;">
                             <label for="cockpit-autonomous-video-duration" style="font-size: 0.75rem; margin-bottom: 0.35rem; display: block; color: var(--text-secondary);">Autopilot Video Duration</label>
                             <select id="cockpit-autonomous-video-duration" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 0.5rem; font-size: 0.8rem; width: 100%;">
-                                <option value="5">5 seconds (Quick Preview)</option>
+                                <option value="5" disabled>5 seconds (retired)</option>
                                 <option value="6">6 seconds (FAL Standard)</option>
-                                <option value="8">8 seconds (FAL LTX)</option>
-                                <option value="10">10 seconds</option>
+                                <option value="8">8 seconds</option>
+                                <option value="10" selected>10 seconds</option>
                                 <option value="12">12 seconds (Seedance / LTX)</option>
-                                <option value="14">14 seconds (FAL LTX)</option>
+                                <option value="15">15 seconds</option>
+                                              <option value="14">14 seconds (FAL LTX)</option>
                                 <option value="16">16 seconds (FAL LTX)</option>
                                 <option value="18">18 seconds (FAL LTX)</option>
                                 <option value="20">20 seconds (FAL LTX Max)</option>
@@ -1177,7 +1180,7 @@
                     <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px;">
                         <h4 style="font-size: 0.85rem; color: var(--primary-color); margin-bottom: 0.35rem; font-weight: 600;">2. Cinematic Video Rendering</h4>
                         <p style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.4; margin: 0;">
-                            Connects to Google Veo 3.1 (5s previews) and Runway Gen-3 (10s and 30s stitched cinematic scenes) to dynamically render media previews.
+                            Connects to Google Veo 3.1 (8s) and Runway Gen-3 (10s and 30s stitched cinematic scenes) to dynamically render media. No 5-second previews.
                         </p>
                     </div>
                     <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px;">
@@ -1716,12 +1719,13 @@
                     <div class="input-group" style="margin-top: 0.5rem;">
                         <label for="autonomous-video-duration">Autopilot Video Duration</label>
                         <select id="autonomous-video-duration" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%;">
-                            <option value="5">5 seconds (Quick Preview)</option>
+                            <option value="5" disabled>5 seconds (retired)</option>
                             <option value="6">6 seconds (FAL Standard)</option>
-                            <option value="8">8 seconds (FAL LTX)</option>
-                            <option value="10">10 seconds</option>
+                            <option value="8">8 seconds</option>
+                            <option value="10" selected>10 seconds</option>
                             <option value="12">12 seconds (Seedance / LTX)</option>
-                            <option value="14">14 seconds (FAL LTX)</option>
+                            <option value="15">15 seconds</option>
+                                              <option value="14">14 seconds (FAL LTX)</option>
                             <option value="16">16 seconds (FAL LTX)</option>
                             <option value="18">18 seconds (FAL LTX)</option>
                             <option value="20">20 seconds (FAL LTX Max)</option>
