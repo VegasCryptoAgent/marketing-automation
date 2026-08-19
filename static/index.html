@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/index.css?v=2.0">
+    <link rel="stylesheet" href="/static/index.css?v=2.1">
 </head>
 <body>
     <div class="glow-bg"></div>
@@ -32,6 +32,7 @@
             <button id="nav-automation" class="nav-link">Autopilot & Cockpit</button>
             <button id="nav-campaigns" class="nav-link active">Viral Trends & Recreation</button>
             <button id="nav-growth" class="nav-link">Growth OS</button>
+            <button id="nav-marketing" class="nav-link">Marketing OS</button>
             <button id="nav-repurposer" class="nav-link">Repurposer Workshop</button>
             <button id="nav-pipeline" class="nav-link">Upload & Analyze Video</button>
         </div>
@@ -1385,6 +1386,109 @@
                 </section>
             </div>
         </div>
+
+        <!-- Marketing OS -->
+        <div id="marketing-view" class="view-content" style="width:100%;">
+            <div class="growth-toolbar glass-card">
+                <div>
+                    <p class="growth-kicker">Brand · Hooks · Launch packet</p>
+                    <h2>Marketing OS</h2>
+                    <p class="mos-lede">Save brand context, generate an 18-tactic scored hook matrix, and ship a launch / social packet. SocialClaw is optional and stays "not configured" until SOCIALCLAW_API_URL is set — this app will not fake a post.</p>
+                </div>
+                <div class="growth-actions">
+                    <span id="mos-socialclaw-pill" class="mos-pill mos-pill-off">SocialClaw: not configured</span>
+                </div>
+            </div>
+
+            <div class="growth-grid">
+                <section class="growth-panel growth-panel-wide">
+                    <div class="growth-panel-header">
+                        <h3>Brand context</h3>
+                        <span id="mos-brand-meta">Unsaved</span>
+                    </div>
+                    <p class="mos-help">Fill at least four fields. Without this, hooks are labeled un-contextualised. Never invent proof — leave numbers blank and the engine will emit [NEED: figure].</p>
+                    <div class="mos-brand-grid">
+                        <label>Product, one sentence<textarea id="mos-product-one" rows="2" placeholder="What it is, in one sentence a stranger would understand"></textarea></label>
+                        <label>Mechanism<textarea id="mos-product-mechanism" rows="2" placeholder="What it actually does"></textarea></label>
+                        <label>What it does NOT do<textarea id="mos-product-not" rows="2" placeholder="Prevents overclaiming"></textarea></label>
+                        <label>Who buys it<textarea id="mos-aud-who" rows="2" placeholder="Audience"></textarea></label>
+                        <label>What they believe before they arrive<textarea id="mos-aud-belief" rows="2"></textarea></label>
+                        <label>2am worry<textarea id="mos-aud-worry" rows="2"></textarea></label>
+                        <label>What they'd use instead<textarea id="mos-aud-alt" rows="2"></textarea></label>
+                        <label>The one thing only we can say<textarea id="mos-pos-only" rows="2"></textarea></label>
+                        <label>Category<textarea id="mos-pos-cat" rows="2"></textarea></label>
+                        <label>Named competitors<textarea id="mos-pos-comp" rows="2"></textarea></label>
+                        <label>Numbers we can cite (source + date)<textarea id="mos-proof-num" rows="2" placeholder="Leave blank rather than invent"></textarea></label>
+                        <label>Named customers we may name<textarea id="mos-proof-cust" rows="2"></textarea></label>
+                        <label>Claims that need legal<textarea id="mos-proof-legal" rows="2"></textarea></label>
+                        <label>How we sound<textarea id="mos-voice-how" rows="2"></textarea></label>
+                        <label>How we never sound<textarea id="mos-voice-never" rows="2"></textarea></label>
+                        <label>Words we always use<textarea id="mos-voice-always" rows="2"></textarea></label>
+                        <label>Words we never use<textarea id="mos-voice-banned" rows="2"></textarea></label>
+                        <label>Regulatory limits<textarea id="mos-con-reg" rows="2"></textarea></label>
+                        <label>Off-limits<textarea id="mos-con-off" rows="2"></textarea></label>
+                    </div>
+                    <div class="growth-inline-form two" style="margin-top:0.85rem;">
+                        <button id="mos-brand-save" class="primary-btn" type="button">Save brand context</button>
+                        <button id="mos-brand-reload" class="secondary-btn" type="button">Reload</button>
+                    </div>
+                    <div id="mos-brand-status" class="growth-status">Load brand context to start.</div>
+                </section>
+
+                <section class="growth-panel growth-panel-wide">
+                    <div class="growth-panel-header">
+                        <h3>Hook engine</h3>
+                        <span>18 tactics · scored 0–100</span>
+                    </div>
+                    <div class="growth-inline-form">
+                        <input id="mos-hook-segment" type="text" placeholder="Segment (optional)">
+                        <input id="mos-hook-notes" type="text" placeholder="Extra notes — real language only">
+                        <button id="mos-hook-generate" class="primary-btn" type="button">Generate hook matrix</button>
+                    </div>
+                    <div id="mos-hook-meta" class="growth-status">Scores are heuristics, not measured performance.</div>
+                    <div id="mos-hook-recommended" class="mos-recommend"></div>
+                    <div class="mos-table-wrap">
+                        <table class="mos-table" id="mos-hook-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Score</th>
+                                    <th>Tactic</th>
+                                    <th>Format</th>
+                                    <th>Visual</th>
+                                    <th>Spoken / headline</th>
+                                    <th>Text / support</th>
+                                    <th>Source</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div id="mos-hook-gaps" class="mos-gaps"></div>
+                </section>
+
+                <section class="growth-panel growth-panel-wide">
+                    <div class="growth-panel-header">
+                        <h3>Launch / social packet</h3>
+                        <span>Artifacts, not advice</span>
+                    </div>
+                    <div class="growth-inline-form">
+                        <input id="mos-launch-ships" type="text" placeholder="What ships">
+                        <input id="mos-launch-metric" type="text" placeholder="The one metric">
+                        <input id="mos-launch-date" type="text" placeholder="Launch date">
+                        <button id="mos-launch-generate" class="primary-btn" type="button">Generate packet</button>
+                    </div>
+                    <input id="mos-launch-notes" type="text" placeholder="Extra notes (optional)" style="margin:0.65rem 0 0.85rem;width:100%;">
+                    <div id="mos-packet-status" class="growth-status">Generate a packet after brand context is saved.</div>
+                    <div id="mos-packet-output" class="mos-packet"></div>
+                    <div class="growth-inline-form two" style="margin-top:0.85rem;">
+                        <button id="mos-socialclaw-preview" class="secondary-btn" type="button">SocialClaw preview</button>
+                        <button id="mos-copy-linkedin" class="secondary-btn" type="button">Copy LinkedIn</button>
+                    </div>
+                    <div id="mos-socialclaw-status" class="growth-status">SocialClaw: not configured</div>
+                </section>
+            </div>
+        </div>
     </main>
 
     <!-- SETTINGS MODAL -->
@@ -1768,6 +1872,6 @@
     <div id="toast" class="toast hidden">Post copied successfully!</div>
     
     <!-- Scripts -->
-    <script src="/static/index.js?v=2.0"></script>
+    <script src="/static/index.js?v=2.1"></script>
 </body>
 </html>
