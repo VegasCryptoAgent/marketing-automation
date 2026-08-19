@@ -1861,7 +1861,7 @@ def ensure_video_under_limit(video_path: str, max_duration_sec: int = 90) -> str
                 "-c:a", "aac",
                 trimmed_path
             ]
-            trim_res = subprocess.run(trim_cmd, capture_output=True, text=True, timeout=30)
+            trim_res = subprocess.run(trim_cmd, capture_output=True, text=True, timeout=180)
             if trim_res.returncode == 0 and os.path.exists(trimmed_path):
                 logger.info(f"Trimmed video created: {trimmed_path}")
                 return trimmed_path
@@ -2055,6 +2055,158 @@ def virality_score_endpoint(req: ViralityScoreRequest):
         logger.exception("Failed to generate virality score")
         raise HTTPException(status_code=500, detail=f"Failed to generate virality score: {str(e)}")
 
+
+class OriginalVideoDownloadError(Exception):
+    """Raised when the exact source video cannot be downloaded or trimmed."""
+
+
+def _is_placeholder_video_url(target_url: str) -> bool:
+    markers = (
+        "status/178543210987",
+        "status/12345",
+        "DigitalDreams",
+        "AIVoyager",
+        "ChronoDrifter",
+        "abcdef",
+        "C9xabcd",
+        "7385512345",
+        "Luma",
+        "examplecyber",
+        "example",
+        "dQw4w9WgXcQ",
+        "results?search_query=",
+    )
+    return any(marker in target_url for marker in markers)
+
+
+def download_and_trim_original_video(
+    url: str,
+    title: Optional[str] = None,
+    max_duration_sec: int = 60,
+    allow_fallback: bool = False,
+    timeout_sec: int = 180,
+) -> str:
+    """Download a source URL into GENERATED_DIR and trim it under max_duration_sec.
+
+    Autopilot awaits this helper (via an executor). It must not fire-and-forget
+    the /api/load-original-video background job.
+    """
+    if not url or not str(url).strip():
+        raise OriginalVideoDownloadError("No source video URL was provided.")
+
+    target_url = str(url).strip()
+    file_id = f"original_{uuid.uuid4().hex}"
+    out_template = os.path.join(GENERATED_DIR, f"{file_id}.%(ext)s")
+    is_mock_url = _is_placeholder_video_url(target_url)
+
+    if is_mock_url and not allow_fallback:
+        raise OriginalVideoDownloadError(
+            "Refusing to substitute a placeholder/search URL. Provide the exact original video URL or explicitly enable fallback."
+        )
+    if is_mock_url and title and allow_fallback:
+        logger.info(f"Mock URL detected. Swapping to YouTube search for: {title}")
+        target_url = f"ytsearch1:{title}"
+
+    def run_ytdlp(extra_args, download_url):
+        cmd = [
+            get_binary_path("yt-dlp"),
+            *extra_args,
+            "--no-playlist",
+            "-o", out_template,
+            download_url,
+        ]
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
+
+    section = f"*0-{int(max_duration_sec)}"
+    try:
+        result = run_ytdlp(
+            ["-f", "b[ext=mp4]/b", "--download-sections", section, "--force-keyframes-at-cuts"],
+            target_url,
+        )
+        if result.returncode != 0:
+            logger.warning(f"yt-dlp sectioned mp4 download failed: {result.stderr}. Trying full-file fallback...")
+            result = run_ytdlp(["-f", "b[ext=mp4]/b"], target_url)
+        if result.returncode != 0:
+            logger.warning(f"yt-dlp strict mp4 check failed: {result.stderr}. Trying merge fallback...")
+            result = run_ytdlp(["--merge-output-format", "mp4"], target_url)
+
+        if result.returncode != 0 and not allow_fallback:
+            raise OriginalVideoDownloadError(
+                "Could not download this specific video. The source platform may block automated "
+                "downloads (common for Instagram/TikTok/X without login) or the link may be private "
+                "or invalid. The generated commentary text is still usable without the video."
+            )
+
+        if result.returncode != 0 and title and not str(target_url).startswith("ytsearch1:"):
+            logger.info(f"Direct download failed. Swapping to final YouTube search fallback for: {title}")
+            result = run_ytdlp(["--merge-output-format", "mp4"], f"ytsearch1:{title}")
+
+        if result.returncode != 0 and allow_fallback:
+            logger.info("Search fallback failed. Using verified cinematic trailer fallback...")
+            result = run_ytdlp(["--merge-output-format", "mp4"], "https://www.youtube.com/watch?v=aqz-KE-bpKQ")
+            if result.returncode != 0:
+                raise OriginalVideoDownloadError(f"Failed to download video: {result.stderr}")
+        elif result.returncode != 0:
+            raise OriginalVideoDownloadError("Could not download this specific video and fallback is disabled.")
+    except subprocess.TimeoutExpired:
+        raise OriginalVideoDownloadError(f"Video scraping request timed out (limit: {timeout_sec} seconds).")
+
+    downloaded_file = None
+    for filename in os.listdir(GENERATED_DIR):
+        if filename.startswith(file_id):
+            downloaded_file = os.path.join(GENERATED_DIR, filename)
+            break
+
+    if not downloaded_file or not os.path.exists(downloaded_file):
+        raise OriginalVideoDownloadError("Video downloaded but target file was not found on disk.")
+
+    ext = os.path.splitext(downloaded_file)[1].lower()
+    target_path = os.path.join(GENERATED_DIR, f"{file_id}.mp4")
+    if ext != ".mp4":
+        conv_cmd = [get_binary_path("ffmpeg"), "-y", "-i", downloaded_file, "-c", "copy", target_path]
+        conv_res = subprocess.run(conv_cmd, capture_output=True, text=True, timeout=timeout_sec)
+        if conv_res.returncode != 0:
+            conv_cmd_enc = [
+                get_binary_path("ffmpeg"), "-y",
+                "-i", downloaded_file,
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                target_path,
+            ]
+            conv_res = subprocess.run(conv_cmd_enc, capture_output=True, text=True, timeout=timeout_sec)
+            if conv_res.returncode != 0:
+                raise OriginalVideoDownloadError(f"FFmpeg container conversion failed: {conv_res.stderr}")
+        if os.path.exists(downloaded_file):
+            os.remove(downloaded_file)
+        downloaded_file = target_path
+
+    return ensure_video_under_limit(downloaded_file, max_duration_sec=max_duration_sec)
+
+
+def resolve_autopilot_copy(top_trend: dict, settings: dict) -> tuple:
+    """Use scan copy when present; otherwise Gemini-repurpose the source URL."""
+    linkedin_text = (top_trend.get("recreated_linkedin_post") or "").strip()
+    twitter_thread = top_trend.get("recreated_twitter_thread") or None
+    if isinstance(twitter_thread, list):
+        twitter_thread = [t for t in twitter_thread if str(t).strip()]
+        if not twitter_thread:
+            twitter_thread = None
+    source_url = (top_trend.get("url") or "").strip()
+    title = top_trend.get("title") or "Viral clip"
+    if (not linkedin_text or not twitter_thread) and source_url:
+        try:
+            content = repurpose_video_link_copy(source_url, settings)
+            if not linkedin_text:
+                linkedin_text = (content.repurposed_linkedin_post or "").strip()
+            if not twitter_thread:
+                twitter_thread = content.repurposed_twitter_thread
+        except Exception as copy_err:
+            logger.error(f"Autopilot: repurpose_video_link_copy failed: {copy_err}")
+    if not linkedin_text:
+        credit = f"Inspired by the original: {source_url}" if source_url else "Inspired by a viral moment."
+        linkedin_text = f"{title}\n\n{credit}"
+    return linkedin_text, twitter_thread
+
 class LoadOriginalVideoRequest(BaseModel):
     url: str
     title: Optional[str] = None
@@ -2069,155 +2221,24 @@ def load_original_video(req: LoadOriginalVideoRequest, background_tasks: Backgro
     # We will run this inside a background task to prevent timing out on long yt-dlp downloads,
     # utilizing the existing update_job_status mechanism.
     update_job_status(job_id, "PENDING", 0, "Initializing video scraper...")
-    
-    settings = load_settings()
-    
+
     async def download_task():
         try:
             update_job_status(job_id, "PROCESSING", 10, "Running yt-dlp to scrape video file...")
-            import subprocess
-            file_id = f"original_{uuid.uuid4().hex}"
-            out_template = os.path.join(GENERATED_DIR, f"{file_id}.%(ext)s")
-            
-            target_url = req.url
-            # Fallback check: if the URL is fake, broken, or contains placeholder IDs
-            is_mock_url = (
-                "status/178543210987" in target_url or 
-                "status/12345" in target_url or 
-                "DigitalDreams" in target_url or 
-                "AIVoyager" in target_url or 
-                "ChronoDrifter" in target_url or 
-                "abcdef" in target_url or 
-                "C9xabcd" in target_url or 
-                "7385512345" in target_url or 
-                "Luma" in target_url or 
-                "examplecyber" in target_url or
-                "example" in target_url or
-                "dQw4w9WgXcQ" in target_url or
-                "results?search_query=" in target_url
+            downloaded_file = await asyncio.to_thread(
+                download_and_trim_original_video,
+                req.url,
+                req.title,
+                60,
+                req.allow_fallback,
+                180,
             )
-            
-            if is_mock_url and not req.allow_fallback:
-                update_job_status(
-                    job_id, "FAILED", 0,
-                    "Refusing to substitute a placeholder/search URL. Provide the exact original video URL or explicitly enable fallback."
-                )
-                return
-
-            if is_mock_url and req.title and req.allow_fallback:
-                logger.info(f"Mock URL detected. Swapping to YouTube search for: {req.title}")
-                target_url = f"ytsearch1:{req.title}"
-            
-            cmd = [
-                get_binary_path("yt-dlp"),
-                "-f", "b[ext=mp4]/b",
-                "--no-playlist",
-                "-o", out_template,
-                target_url
-            ]
-            
-            # Run with a 90-second timeout
-            result = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=90)
-            if result.returncode != 0:
-                logger.warning(f"yt-dlp strict mp4 check failed: {result.stderr}. Trying fallback...")
-                cmd_fallback = [
-                    get_binary_path("yt-dlp"),
-                    "--no-playlist",
-                    "-o", out_template,
-                    "--merge-output-format", "mp4",
-                    target_url
-                ]
-                result = await asyncio.to_thread(subprocess.run, cmd_fallback, capture_output=True, text=True, timeout=90)
-
-                if result.returncode != 0 and not req.allow_fallback:
-                    update_job_status(
-                        job_id, "FAILED", 0,
-                        "Could not download this specific video. The source platform may block automated "
-                        "downloads (common for Instagram/TikTok/X without login) or the link may be private "
-                        "or invalid. The generated commentary text is still usable without the video."
-                    )
-                    return
-
-                # If target_url still fails, try search as a final resort
-                if result.returncode != 0 and req.title and not target_url.startswith("ytsearch1:"):
-                    logger.info(f"Direct download failed. Swapping to final YouTube search fallback for: {req.title}")
-                    cmd_search = [
-                        get_binary_path("yt-dlp"),
-                        "--no-playlist",
-                        "-o", out_template,
-                        "--merge-output-format", "mp4",
-                        f"ytsearch1:{req.title}"
-                    ]
-                    result = await asyncio.to_thread(subprocess.run, cmd_search, capture_output=True, text=True, timeout=90)
-
-                if result.returncode != 0 and req.allow_fallback:
-                    logger.info("Search fallback failed. Using verified cinematic trailer fallback...")
-                    cmd_final_safety = [
-                        get_binary_path("yt-dlp"),
-                        "--no-playlist",
-                        "-o", out_template,
-                        "--merge-output-format", "mp4",
-                        "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
-                    ]
-                    result = await asyncio.to_thread(subprocess.run, cmd_final_safety, capture_output=True, text=True, timeout=90)
-                    if result.returncode != 0:
-                        update_job_status(job_id, "FAILED", 0, f"Failed to download video: {result.stderr}")
-                        return
-                elif result.returncode != 0:
-                    update_job_status(
-                        job_id, "FAILED", 0,
-                        "Could not download this specific video and fallback is disabled."
-                    )
-                    return
-            
-            # Find download
-            downloaded_file = None
-            for filename in os.listdir(GENERATED_DIR):
-                if filename.startswith(file_id):
-                    downloaded_file = os.path.join(GENERATED_DIR, filename)
-                    break
-            
-            if not downloaded_file or not os.path.exists(downloaded_file):
-                update_job_status(job_id, "FAILED", 0, "Video downloaded but target file was not found on disk.")
-                return
-                
-            ext = os.path.splitext(downloaded_file)[1].lower()
-            target_path = os.path.join(GENERATED_DIR, f"{file_id}.mp4")
-            
-            if ext != ".mp4":
-                update_job_status(job_id, "PROCESSING", 80, "Converting video container formats to mp4...")
-                conv_cmd = [
-                    get_binary_path("ffmpeg"), "-y",
-                    "-i", downloaded_file,
-                    "-c", "copy",
-                    target_path
-                ]
-                conv_res = await asyncio.to_thread(subprocess.run, conv_cmd, capture_output=True, text=True)
-                if conv_res.returncode != 0:
-                    # Fallback encode
-                    conv_cmd_enc = [
-                        get_binary_path("ffmpeg"), "-y",
-                        "-i", downloaded_file,
-                        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                        "-c:a", "aac",
-                        target_path
-                    ]
-                    conv_res = await asyncio.to_thread(subprocess.run, conv_cmd_enc, capture_output=True, text=True)
-                    if conv_res.returncode != 0:
-                        update_job_status(job_id, "FAILED", 0, f"FFmpeg container conversion failed: {conv_res.stderr}")
-                        return
-                
-                if os.path.exists(downloaded_file):
-                    os.remove(downloaded_file)
-                downloaded_file = target_path
-                
-            # Trim downloaded video to 90 seconds max
-            downloaded_file = ensure_video_under_limit(downloaded_file, max_duration_sec=90)
-            
             web_path = f"/static/assets/generated/{os.path.basename(downloaded_file)}"
             update_job_status(job_id, "SUCCESS", 100, "Original video loaded successfully!", result={"video_path": web_path})
+        except OriginalVideoDownloadError as e:
+            update_job_status(job_id, "FAILED", 0, str(e))
         except asyncio.TimeoutError:
-            update_job_status(job_id, "FAILED", 0, "Video scraping request timed out (limit: 90 seconds).")
+            update_job_status(job_id, "FAILED", 0, "Video scraping request timed out (limit: 180 seconds).")
         except Exception as e:
             logger.exception("Error loading original video")
             update_job_status(job_id, "FAILED", 0, f"Scraper execution failed: {str(e)}")
@@ -2714,51 +2735,52 @@ async def execute_scheduled_post(post: dict):
             break
     save_scheduled_posts(posts)
 
-async def execute_autonomous_autopost(settings: dict):
+async def execute_autonomous_autopost(settings: dict, forced_trend: Optional[dict] = None):
     logger.info("Starting autonomous autopilot pipeline...")
-    job_id = str(uuid.uuid4())
-    
-    # Run live trend scanner in executor to avoid blocking the loop
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, run_live_trend_scanner, job_id, settings)
-    
-    status = jobs_status.get(job_id, {})
-    if status.get("status") != "SUCCESS":
-        logger.error(f"Autonomous trend scanning failed: {status.get('message')}")
-        return
-        
-    result = status.get("result", {})
-    persist_trend_scan_result(result)
-    trends = result.get("trends", [])
-    if not trends:
-        logger.error("Autonomous trend scanning found no trends.")
-        return
-        
-    top_trend = trends[0]
-    logger.info(f"Selected top trend: {top_trend['title']}")
-    
-    # Trigger video generation and await completion (engine/duration from Autopilot settings)
-    video_job_id = str(uuid.uuid4())
-    video_engine = settings.get("autonomous_video_engine", "fal_hailuo_23")
-    video_duration = normalize_video_duration(video_engine, int(settings.get("autonomous_video_duration", 10)))
-    logger.info(f"Autopilot: Starting {video_duration}-second video rendering using {video_engine}...")
-    await loop.run_in_executor(
-        None,
-        run_video_generation,
-        video_job_id,
-        top_trend["recreated_video_prompt"],
-        settings,
-        video_engine,
-        video_duration
-    )
+    top_trend = forced_trend if isinstance(forced_trend, dict) and forced_trend.get("url") else None
 
-    generated_video_path = None
-    video_status = get_job_status(video_job_id)
-    if video_status.get("status") == "SUCCESS":
-        generated_video_path = f"/static/assets/generated/{video_job_id}.mp4"
-        logger.info(f"Autopilot: Generated {video_duration}s video successfully: {generated_video_path}")
+    if top_trend:
+        logger.info(f"Using provided/persisted pick: {top_trend.get('title') or top_trend.get('url')}")
     else:
-        logger.error(f"Autopilot: Video generation failed or timed out: {video_status.get('message')}")
+        job_id = str(uuid.uuid4())
+        await loop.run_in_executor(None, run_live_trend_scanner, job_id, settings)
+        status = jobs_status.get(job_id, {})
+        if status.get("status") != "SUCCESS":
+            logger.error(f"Autonomous trend scanning failed: {status.get('message')}")
+            return
+        result = status.get("result", {})
+        persist_trend_scan_result(result)
+        trends = result.get("trends", [])
+        if not trends:
+            logger.error("Autonomous trend scanning found no trends.")
+            return
+        top_trend = trends[0]
+        logger.info(f"Selected top trend: {top_trend['title']}")
+
+    source_url = (top_trend.get("url") or "").strip()
+    title = top_trend.get("title") or "Viral clip"
+    linkedin_text, twitter_thread = await loop.run_in_executor(None, resolve_autopilot_copy, top_trend, settings)
+
+    # Repurpose the ORIGINAL viral video: download + trim < 60s. Do not generate a new clip.
+    generated_video_path = None
+    video_error = None
+    logger.info(f"Autopilot: downloading original video from {source_url} (no Veo/FAL/Runway generation).")
+    try:
+        downloaded_file = await loop.run_in_executor(
+            None,
+            download_and_trim_original_video,
+            source_url,
+            title,
+            60,
+            False,
+            180,
+        )
+        generated_video_path = f"/static/assets/generated/{os.path.basename(downloaded_file)}"
+        logger.info(f"Autopilot: Original video ready (trimmed to 60s): {generated_video_path}")
+    except Exception as download_err:
+        video_error = str(download_err)
+        logger.error(f"Autopilot: Original video download failed; staging copy without media. {download_err}")
 
     platforms = settings.get("autonomous_platforms", ["twitter", "linkedin"])
 
@@ -2770,7 +2792,7 @@ async def execute_autonomous_autopost(settings: dict):
     if generated_video_path and any(p in platforms for p in ("instagram", "tiktok")):
         try:
             abs_source = resolve_local_video_path(generated_video_path)
-            vertical_filename = f"{video_job_id}_vertical_9x16.mp4"
+            vertical_filename = f"{os.path.splitext(os.path.basename(generated_video_path))[0]}_vertical_9x16.mp4"
             abs_vertical = os.path.join(GENERATED_DIR, vertical_filename)
             font_path = get_font_path()
             render_variant_with_fallback(abs_source, abs_vertical, 1080, 1920, "", font_path, 320)
@@ -2784,7 +2806,7 @@ async def execute_autonomous_autopost(settings: dict):
         try:
             template_source_path = vertical_video_path or generated_video_path
             abs_template_source = resolve_local_video_path(template_source_path)
-            template_filename = f"{video_job_id}_viral_template.mp4"
+            template_filename = f"{os.path.splitext(os.path.basename(generated_video_path))[0]}_viral_template.mp4"
             abs_template_output = os.path.join(GENERATED_DIR, template_filename)
             template_title = top_trend.get("title", "AI Trend Recreation")
             template_subtitle = "Recreated and packaged by 6Frame Studio"
@@ -2812,16 +2834,18 @@ async def execute_autonomous_autopost(settings: dict):
     log_post = {
         "id": str(uuid.uuid4()),
         "platform": ",".join(platforms) if platforms else "none",
-        "text": top_trend["recreated_linkedin_post"],
-        "thread": top_trend.get("recreated_twitter_thread"),
+        "text": linkedin_text,
+        "thread": twitter_thread,
         "scheduled_time": now.isoformat(),
-        "campaign_title": f"Autonomous: {top_trend['title']}",
+        "campaign_title": f"Autonomous: {title}",
         "video_path": generated_video_path,
         "vertical_video_path": vertical_video_path,
         "source_video_path": original_generated_video_path,
+        "source_url": source_url,
+        "media_source": "original_download" if generated_video_path else "missing",
         "viral_template_id": settings.get("viral_template_style") if settings.get("viral_template_enabled", False) else None,
         "status": "PUBLISHING",
-        "error_message": None,
+        "error_message": None if generated_video_path else f"Original video missing: {video_error or 'download failed'}",
         "posted_at": None
     }
 
@@ -2831,7 +2855,7 @@ async def execute_autonomous_autopost(settings: dict):
         posts = load_scheduled_posts()
         posts.append(log_post)
         save_scheduled_posts(posts)
-        logger.info(f"Autopilot pick '{top_trend['title']}' staged for review — awaiting manual approval before publishing.")
+        logger.info(f"Autopilot pick '{title}' staged for review — awaiting manual approval before publishing.")
         return
 
     posts = load_scheduled_posts()
@@ -3058,10 +3082,35 @@ def delete_scheduled_post(post_id: str):
     save_scheduled_posts(filtered_posts)
     return {"status": "SUCCESS", "message": "Scheduled post cancelled."}
 
+class TriggerAutopilotRequest(BaseModel):
+    url: Optional[str] = None
+    title: Optional[str] = None
+    use_persisted_pick: bool = False
+
+
 @app.post("/api/trigger-autopilot")
-def trigger_autopilot(background_tasks: BackgroundTasks):
+def trigger_autopilot(background_tasks: BackgroundTasks, req: Optional[TriggerAutopilotRequest] = None):
     settings = load_settings()
-    background_tasks.add_task(execute_autonomous_autopost, settings)
+    forced_trend = None
+    body = req or TriggerAutopilotRequest()
+    if body.use_persisted_pick:
+        trends = (load_growth_os().get("last_trend_scan") or [])
+        if body.url:
+            forced_trend = next((t for t in trends if (t.get("url") or "").strip() == body.url.strip()), None)
+        if not forced_trend and trends:
+            forced_trend = trends[0]
+        if forced_trend and body.url and not (forced_trend.get("url") or "").strip():
+            forced_trend = {**forced_trend, "url": body.url}
+        if forced_trend and body.title and not forced_trend.get("title"):
+            forced_trend = {**forced_trend, "title": body.title}
+    if not forced_trend and body.url:
+        forced_trend = {
+            "url": body.url,
+            "title": body.title or body.url,
+            "recreated_linkedin_post": "",
+            "recreated_twitter_thread": None,
+        }
+    background_tasks.add_task(execute_autonomous_autopost, settings, forced_trend)
     return {"status": "SUCCESS", "message": "Autonomous autopilot pipeline triggered."}
 
 # ==========================================================================
