@@ -62,6 +62,9 @@ def test_postproxy_callback_is_public():
     assert "postproxy=ok" in res.headers.get("location", "")
     fail = client.get("/api/postproxy/callback?error=access_denied")
     assert "postproxy=failure" in fail.headers.get("location", "")
+    alias = client.get("/oauth/postproxy/callback")
+    assert alias.status_code in (302, 307)
+    assert "postproxy=ok" in alias.headers.get("location", "")
 
 
 def test_postproxy_status_has_no_secrets(tmp_path, monkeypatch):

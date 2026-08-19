@@ -304,11 +304,21 @@ document.addEventListener("DOMContentLoaded", () => {
         updateDiagnosticBadges(window.__lastSettings || {}, socials);
     }
 
+    const DEFAULT_POSTPROXY_SOCIALS = [
+        {platform:"instagram", label:"Instagram", status:"INACTIVE", live:false, connected:false},
+        {platform:"facebook", label:"Facebook", status:"INACTIVE", live:false, connected:false},
+        {platform:"tiktok", label:"TikTok", status:"INACTIVE", live:false, connected:false},
+        {platform:"linkedin", label:"LinkedIn", status:"INACTIVE", live:false, connected:false},
+        {platform:"twitter", label:"Twitter / X", status:"INACTIVE", live:false, connected:false},
+        {platform:"youtube", label:"YouTube", status:"INACTIVE", live:false, connected:false},
+        {platform:"threads", label:"Threads", status:"INACTIVE", live:false, connected:false}
+    ];
+
     function renderCockpitSocials(data) {
         const grid = document.getElementById("cockpit-postproxy-socials");
         const status = document.getElementById("cockpit-postproxy-status");
         if (!grid) return;
-        const socials = data.socials || [];
+        const socials = (data.socials && data.socials.length) ? data.socials : DEFAULT_POSTPROXY_SOCIALS;
         const pp = data.postproxy || data;
         if (status) {
             if (pp.key_valid === false || data.error || pp.error) {
@@ -322,10 +332,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 status.textContent = `${count} PostProxy profile${count === 1 ? "" : "s"} synced${pp.synced_at ? " · " + shortDate(pp.synced_at) : ""}.`;
                 status.dataset.tone = "ok";
             }
-        }
-        if (!socials.length) {
-            grid.innerHTML = `<div class="growth-empty">No PostProxy profiles yet. Use Connect to authorize a social through PostProxy.</div>`;
-            return;
         }
         grid.innerHTML = socials.map(channel => {
             const connected = !!channel.connected;
@@ -374,11 +380,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 return data;
             })
             .catch(err => {
-                const status = document.getElementById("cockpit-postproxy-status");
-                if (status) {
-                    status.textContent = err.message;
-                    status.dataset.tone = "error";
-                }
+                renderPostProxyProfiles({
+                    socials: DEFAULT_POSTPROXY_SOCIALS,
+                    profiles: [],
+                    error: err.message,
+                    configured: false
+                });
                 showToast(err.message, true);
             })
             .finally(() => setPostProxyBusy(false));
