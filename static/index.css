@@ -1193,6 +1193,91 @@ body {
     min-height: 36px;
 }
 
+.postproxy-panel {
+    margin: 0 0 1.25rem;
+    padding: 0.85rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.postproxy-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 0.65rem;
+}
+
+.postproxy-panel-header h3 {
+    font-family: "Outfit", sans-serif;
+    font-size: 0.95rem;
+    margin: 0 0 0.2rem;
+    color: var(--text-primary);
+}
+
+.postproxy-panel-header p,
+.postproxy-status-note {
+    margin: 0;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    line-height: 1.35;
+}
+
+.postproxy-status-note {
+    margin-bottom: 0.65rem;
+}
+
+.postproxy-channel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.postproxy-channel-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 0.45rem;
+    align-items: center;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.postproxy-channel-meta {
+    min-width: 0;
+}
+
+.postproxy-channel-meta strong {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+}
+
+.postproxy-channel-meta span {
+    display: block;
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.postproxy-channel-row .badge {
+    font-size: 0.55rem;
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+    font-weight: bold;
+}
+
+.postproxy-channel-row .secondary-btn {
+    min-height: 30px;
+    padding: 0.25rem 0.55rem;
+    font-size: 0.7rem;
+    width: auto;
+}
+
 .growth-list.compact {
     max-height: 220px;
 }

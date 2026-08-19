@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/index.css?v=2.0">
+    <link rel="stylesheet" href="/static/index.css?v=2.1">
 </head>
 <body>
     <div class="glow-bg"></div>
@@ -1061,6 +1061,18 @@
                         </div>
                     </div>
 
+                    <div class="postproxy-panel" id="postproxy-socials-panel">
+                        <div class="postproxy-panel-header">
+                            <div>
+                                <h3>Socials / PostProxy</h3>
+                                <p>All socials connect through PostProxy. Native tokens stay optional.</p>
+                            </div>
+                            <button type="button" id="cockpit-postproxy-sync-btn" class="secondary-btn">Refresh</button>
+                        </div>
+                        <div id="postproxy-status-note" class="postproxy-status-note">Checking PostProxy…</div>
+                        <div id="postproxy-channel-list" class="postproxy-channel-list"></div>
+                    </div>
+
                     <!-- DIRECT KEY INPUTS -->
                     <div style="max-height: 290px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.8rem; padding-right: 0.25rem;">
                         <div class="form-toggle-group" style="padding: 0.25rem 0; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.2rem;">
@@ -1568,6 +1580,8 @@
                         <input type="number" id="postproxy-daily-publish-limit" min="1" max="25" step="1" value="2">
                         <span class="toggle-help">Maximum automatic PostProxy publish records per day. Manual approval can override this cap.</span>
                     </div>
+                    <p class="toggle-help">Connect / reconnect socials here. After OAuth returns, the cockpit badges refresh from active PostProxy profiles.</p>
+                    <div id="settings-postproxy-channel-list" class="postproxy-channel-list"></div>
                     <div class="postproxy-actions">
                         <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="instagram">Connect Instagram</button>
                         <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="facebook">Connect Facebook</button>
@@ -1575,6 +1589,7 @@
                         <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="youtube">Connect YouTube</button>
                         <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="linkedin">Connect LinkedIn</button>
                         <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="twitter">Connect X</button>
+                        <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="threads">Connect Threads</button>
                     </div>
                     <button id="postproxy-refresh-profiles-btn" type="button" class="secondary-btn" style="width: 100%; margin-top: 0.75rem;">Refresh PostProxy Profiles</button>
                     <div id="postproxy-profiles-output" class="growth-list" style="margin-top: 0.75rem;"></div>
@@ -1768,6 +1783,6 @@
     <div id="toast" class="toast hidden">Post copied successfully!</div>
     
     <!-- Scripts -->
-    <script src="/static/index.js?v=2.0"></script>
+    <script src="/static/index.js?v=2.1"></script>
 </body>
 </html>

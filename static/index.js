@@ -164,6 +164,43 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    const POSTPROXY_PLATFORM_LABELS = {
+        twitter: "X / Twitter",
+        linkedin: "LinkedIn",
+        instagram: "Instagram",
+        facebook: "Facebook",
+        tiktok: "TikTok",
+        youtube: "YouTube",
+        threads: "Threads"
+    };
+    const POSTPROXY_BADGE_MAP = {
+        twitter: "diag-twitter-status",
+        linkedin: "diag-linkedin-status",
+        instagram: "diag-instagram-status",
+        facebook: "diag-facebook-status",
+        tiktok: "diag-tiktok-status",
+        youtube: "diag-youtube-status",
+        threads: "diag-threads-status"
+    };
+
+    function postproxyLivePlatforms(data) {
+        const fromList = Array.isArray(data?.postproxy_active_platforms) ? data.postproxy_active_platforms : [];
+        const channels = data?.postproxy_channels || data?.channels || {};
+        const fromChannels = Object.keys(channels).filter(key => channels[key] && channels[key].live);
+        return new Set([...fromList, ...fromChannels].map(item => item === "x" ? "twitter" : item));
+    }
+
+    function nativePlatformReady(data, platform) {
+        if (platform === "twitter") return !!(data.twitter_consumer_key && data.twitter_consumer_secret && data.twitter_access_token && data.twitter_access_token_secret);
+        if (platform === "linkedin") return !!data.linkedin_access_token;
+        if (platform === "instagram") return !!(data.instagram_access_token && data.instagram_business_account_id);
+        if (platform === "tiktok") return !!data.tiktok_access_token;
+        if (platform === "youtube") return !!(data.youtube_client_id && data.youtube_client_secret && data.youtube_refresh_token);
+        if (platform === "facebook") return !!(data.facebook_page_access_token && data.facebook_page_id);
+        if (platform === "threads") return !!(data.threads_access_token && data.threads_user_id);
+        return false;
+    }
+
     function updateDiagnosticBadges(data) {
         const setActive = (el, active) => {
             if (!el) return;
@@ -178,16 +215,13 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         };
 
+        const live = postproxyLivePlatforms(data);
         setActive(document.getElementById("diag-gemini-status"), !!data.gemini_api_key);
         setActive(document.getElementById("diag-runway-status"), !!data.runway_api_key);
         setActive(document.getElementById("diag-fal-status"), !!data.fal_api_key);
-        setActive(document.getElementById("diag-twitter-status"), !!(data.twitter_consumer_key && data.twitter_consumer_secret && data.twitter_access_token && data.twitter_access_token_secret));
-        setActive(document.getElementById("diag-linkedin-status"), !!data.linkedin_access_token);
-        setActive(document.getElementById("diag-instagram-status"), !!(data.instagram_access_token && data.instagram_business_account_id));
-        setActive(document.getElementById("diag-tiktok-status"), !!data.tiktok_access_token);
-        setActive(document.getElementById("diag-youtube-status"), !!(data.youtube_client_id && data.youtube_client_secret && data.youtube_refresh_token));
-        setActive(document.getElementById("diag-facebook-status"), !!(data.facebook_page_access_token && data.facebook_page_id));
-        setActive(document.getElementById("diag-threads-status"), !!(data.threads_access_token && data.threads_user_id));
+        Object.keys(POSTPROXY_BADGE_MAP).forEach(platform => {
+            setActive(document.getElementById(POSTPROXY_BADGE_MAP[platform]), live.has(platform) || nativePlatformReady(data, platform));
+        });
         setActive(document.getElementById("diag-report-email-status"), !!(data.report_email_to && ((data.report_email_provider === "resend" && data.resend_api_key && data.resend_from) || (data.report_email_provider !== "resend" && data.smtp_host))));
     }
 
@@ -203,9 +237,14 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderProviderDiagnostics(data) {
         const diagnostics = data.diagnostics || {};
         setDiagnosticBadge("diag-report-email-status", diagnostics.report_email?.status);
-        setDiagnosticBadge("diag-twitter-status", diagnostics.twitter_mentions?.status);
-        setDiagnosticBadge("diag-youtube-status", diagnostics.youtube_comments?.status);
-        setDiagnosticBadge("diag-instagram-status", diagnostics.postproxy?.status === "ready" && diagnostics.postproxy?.platforms?.includes("instagram") ? "ready" : diagnostics.postproxy?.status);
+        const postproxy = diagnostics.postproxy || {};
+        const live = new Set(postproxy.platforms || []);
+        Object.keys(POSTPROXY_BADGE_MAP).forEach(platform => {
+            const channel = (postproxy.channels || {})[platform] || {};
+            if (channel.live || live.has(platform)) {
+                setDiagnosticBadge(POSTPROXY_BADGE_MAP[platform], "ready");
+            }
+        });
 
         const output = document.getElementById("provider-diagnostics-output");
         if (!output) return;
@@ -234,7 +273,59 @@ document.addEventListener("DOMContentLoaded", () => {
         }).join("");
     }
 
+    function renderPostProxyChannels(data) {
+        const channels = data.channels || data.postproxy_channels || {};
+        const note = document.getElementById("postproxy-status-note");
+        if (note) {
+            if (!data.configured) {
+                note.textContent = "PostProxy API key is missing. Connect buttons stay available after a key is saved.";
+            } else if (data.error) {
+                note.textContent = data.error;
+            } else if (!(data.profiles || []).length) {
+                note.textContent = "PostProxy is configured, but no profiles are connected yet. Use Connect to authorize a social.";
+            } else {
+                const liveCount = Object.values(channels).filter(item => item && item.live).length;
+                note.textContent = `${liveCount} active PostProxy channel${liveCount === 1 ? "" : "s"}. Connect or reconnect any network below.`;
+            }
+        }
+        const lists = [
+            document.getElementById("postproxy-channel-list"),
+            document.getElementById("settings-postproxy-channel-list")
+        ].filter(Boolean);
+        const rows = Object.keys(POSTPROXY_PLATFORM_LABELS).map(platform => {
+            const item = channels[platform] || {};
+            const live = !!item.live;
+            const name = item.name || (live ? "Connected" : "Not connected");
+            const placement = (item.placements || []).map(entry => entry.name || entry.id).filter(Boolean).join(", ");
+            const statusLabel = live ? "LIVE" : (item.status && item.status !== "disconnected" ? String(item.status).toUpperCase() : "INACTIVE");
+            const bg = live ? "rgba(40, 167, 69, 0.2)" : "rgba(220, 53, 69, 0.2)";
+            const color = live ? "#28a745" : "#dc3545";
+            return `
+                <div class="postproxy-channel-row">
+                    <div class="postproxy-channel-meta">
+                        <strong>${escapeHtml(POSTPROXY_PLATFORM_LABELS[platform])}</strong>
+                        <span>${escapeHtml(name)}${placement ? ` · ${escapeHtml(placement)}` : ""}</span>
+                    </div>
+                    <span class="badge" style="background:${bg};color:${color};">${escapeHtml(statusLabel)}</span>
+                    <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="${escapeHtml(platform)}">${live ? "Reconnect" : "Connect"}</button>
+                </div>
+            `;
+        }).join("");
+        lists.forEach(list => {
+            list.innerHTML = rows;
+            list.querySelectorAll(".postproxy-connect-btn").forEach(btn => {
+                btn.addEventListener("click", () => connectPostProxyPlatform(btn.dataset.platform));
+            });
+        });
+        updateDiagnosticBadges({
+            ...(window.__lastSettingsData || {}),
+            postproxy_channels: channels,
+            postproxy_active_platforms: Object.keys(channels).filter(key => channels[key] && channels[key].live)
+        });
+    }
+
     function renderPostProxyProfiles(data) {
+        renderPostProxyChannels(data);
         const output = document.getElementById("postproxy-profiles-output");
         if (!output) return;
         const profiles = data.profiles || [];
@@ -242,39 +333,79 @@ document.addEventListener("DOMContentLoaded", () => {
         const groupInput = document.getElementById("postproxy-profile-group-id");
         if (groupInput && !groupInput.value && groupId) groupInput.value = groupId;
         if (!profiles.length) {
-            output.innerHTML = `<div class="growth-list-item"><strong>No connected profiles</strong><span>Use a connect button above to authorize a social account.</span></div>`;
+            output.innerHTML = `<div class="growth-list-item"><strong>No connected profiles</strong><span>Use Connect to authorize a social account through PostProxy.</span></div>`;
             return;
         }
-        output.innerHTML = profiles.map(profile => `
+        output.innerHTML = profiles.map(profile => {
+            const placements = (profile.placements || []).map(item => item.name || item.id).filter(Boolean).join(", ");
+            return `
             <div class="growth-list-item">
                 <strong>${escapeHtml(profile.platform)} · ${escapeHtml(profile.name)}</strong>
-                <span>${escapeHtml(profile.status)} · group ${escapeHtml(profile.profile_group_id || groupId)} · ${escapeHtml(profile.post_count || 0)} posts</span>
+                <span>${escapeHtml(profile.status)} · ${escapeHtml(profile.post_count || 0)} posts${placements ? ` · ${escapeHtml(placements)}` : ""}</span>
                 ${profile.expires_at ? `<p>Expires ${escapeHtml(shortDate(profile.expires_at))}</p>` : ""}
             </div>
-        `).join("");
+        `;
+        }).join("");
+    }
+
+    function applyPostProxyStatus(data) {
+        renderPostProxyProfiles(data);
+        return data;
     }
 
     function refreshPostProxyProfiles() {
-        const btn = document.getElementById("postproxy-refresh-profiles-btn");
-        if (btn) {
+        const buttons = [
+            document.getElementById("postproxy-refresh-profiles-btn"),
+            document.getElementById("cockpit-postproxy-sync-btn")
+        ].filter(Boolean);
+        buttons.forEach(btn => {
             btn.disabled = true;
+            btn.dataset.originalText = btn.textContent;
             btn.textContent = "Refreshing...";
-        }
-        return fetch("/api/postproxy/profiles")
-            .then(res => {
-                if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "PostProxy profile refresh failed") });
-                return res.json();
-            })
+        });
+        return fetch("/api/postproxy/status")
+            .then(res => res.json().then(body => {
+                if (!res.ok && !body.configured) return body;
+                if (!res.ok) throw new Error(body.detail || body.error || "PostProxy profile refresh failed");
+                return body;
+            }))
+            .then(data => applyPostProxyStatus(data))
+            .catch(err => showToast(err.message, true))
+            .finally(() => {
+                buttons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.textContent = btn.id === "cockpit-postproxy-sync-btn" ? "Refresh" : (btn.dataset.originalText || "Refresh PostProxy Profiles");
+                });
+            });
+    }
+
+    function syncPostProxyProfiles() {
+        const buttons = [
+            document.getElementById("postproxy-refresh-profiles-btn"),
+            document.getElementById("cockpit-postproxy-sync-btn")
+        ].filter(Boolean);
+        buttons.forEach(btn => {
+            btn.disabled = true;
+            btn.dataset.originalText = btn.textContent;
+            btn.textContent = "Syncing...";
+        });
+        return fetch("/api/postproxy/sync", { method: "POST" })
+            .then(res => res.json().then(body => {
+                if (!res.ok && body && (body.error || body.configured === false)) return body;
+                if (!res.ok) throw new Error(body.detail || body.error || "PostProxy sync failed");
+                return body;
+            }))
             .then(data => {
-                renderPostProxyProfiles(data);
+                applyPostProxyStatus(data);
+                fetchProviderDiagnostics();
                 return data;
             })
             .catch(err => showToast(err.message, true))
             .finally(() => {
-                if (btn) {
+                buttons.forEach(btn => {
                     btn.disabled = false;
-                    btn.textContent = "Refresh PostProxy Profiles";
-                }
+                    btn.textContent = btn.id === "cockpit-postproxy-sync-btn" ? "Refresh" : "Refresh PostProxy Profiles";
+                });
             });
     }
 
@@ -284,8 +415,7 @@ document.addEventListener("DOMContentLoaded", () => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 platform,
-                profile_group_id: document.getElementById("postproxy-profile-group-id")?.value || "",
-                redirect_url: window.location.origin + "/"
+                profile_group_id: document.getElementById("postproxy-profile-group-id")?.value || ""
             })
         })
         .then(res => {
@@ -295,15 +425,28 @@ document.addEventListener("DOMContentLoaded", () => {
         .then(data => {
             if (data.already_connected) {
                 showToast(`PostProxy ${platform} is already connected.`);
-                refreshPostProxyProfiles();
+                syncPostProxyProfiles();
             } else if (data.url) {
                 window.open(data.url, "_blank", "noopener,noreferrer");
-                showToast(`PostProxy ${platform} connection opened.`);
+                showToast(`PostProxy ${platform} connection opened. Finish auth, then this page will refresh.`);
             } else {
                 showToast("PostProxy did not return a connection URL.", true);
             }
         })
         .catch(err => showToast(err.message, true));
+    }
+
+    function consumePostProxyReturn() {
+        const params = new URLSearchParams(window.location.search);
+        const flag = params.get("postproxy");
+        if (!flag) return;
+        if (flag === "ok") showToast("PostProxy connection completed. Refreshing socials...");
+        else showToast("PostProxy connection did not complete. Try Connect again.", true);
+        syncPostProxyProfiles().finally(() => {
+            params.delete("postproxy");
+            const next = params.toString();
+            window.history.replaceState({}, "", next ? `${window.location.pathname}?${next}` : window.location.pathname);
+        });
     }
 
     function fetchProviderDiagnostics() {
@@ -442,9 +585,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.getElementById("wizard-autonomous-posting").checked = data.autonomous_posting || false;
 
                 // Update health diagnostics
+                window.__lastSettingsData = data;
                 updateDiagnosticBadges(data);
                 fetchProviderDiagnostics();
-                if (data.postproxy_api_key) refreshPostProxyProfiles();
+                refreshPostProxyProfiles();
+                consumePostProxyReturn();
             })
             .catch(err => {
                 console.error("Failed to load settings:", err);
@@ -504,7 +649,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const postProxyRefreshBtn = document.getElementById("postproxy-refresh-profiles-btn");
     if (postProxyRefreshBtn) {
-        postProxyRefreshBtn.addEventListener("click", refreshPostProxyProfiles);
+        postProxyRefreshBtn.addEventListener("click", syncPostProxyProfiles);
+    }
+    const cockpitPostProxySyncBtn = document.getElementById("cockpit-postproxy-sync-btn");
+    if (cockpitPostProxySyncBtn) {
+        cockpitPostProxySyncBtn.addEventListener("click", syncPostProxyProfiles);
     }
     document.querySelectorAll(".postproxy-connect-btn").forEach(btn => {
         btn.addEventListener("click", () => connectPostProxyPlatform(btn.dataset.platform));

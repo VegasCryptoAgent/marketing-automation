@@ -37,7 +37,7 @@ logger = logging.getLogger("main")
 
 app = FastAPI(title="6Frame Studio Marketing Automation Hub")
 
-PUBLIC_API_PATHS = {"/api/auth/login", "/api/auth/status"}
+PUBLIC_API_PATHS = {"/api/auth/login", "/api/auth/status", "/api/postproxy/callback"}
 # These routes must remain reachable without credentials. Social networks fetch
 # generated media directly, while /r and /b are intentionally public campaign URLs.
 PUBLIC_PREFIXES = ("/static/", "/r/", "/b/")
@@ -152,6 +152,9 @@ UPLOAD_DIR = os.path.join(STATE_DIR, "uploads")
 GENERATED_DIR = os.path.join(STATE_DIR, "generated")
 REPORTS_DIR = os.path.join(STATE_DIR, "reports")
 SETTINGS_FILE = os.path.join(STATE_DIR, "settings.json")
+POSTPROXY_CACHE_FILE = os.path.join(STATE_DIR, "postproxy_cache.json")
+POSTPROXY_SOCIAL_PLATFORMS = ["twitter", "linkedin", "instagram", "facebook", "tiktok", "youtube", "threads"]
+TWITTER_CHAR_LIMIT = 280
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
@@ -862,14 +865,304 @@ def postproxy_profile_for_platform(settings: dict, platform: str) -> Optional[di
             return profile
     return None
 
-def first_postproxy_placement_id(settings: dict, platform: str) -> Optional[str]:
-    profile = postproxy_profile_for_platform(settings, platform)
+
+def postproxy_key_configured(settings: dict) -> bool:
+    return bool(settings.get("postproxy_api_key") or os.environ.get("POSTPROXY_API_KEY"))
+
+def postproxy_group_configured(settings: dict) -> bool:
+    return bool(settings.get("postproxy_profile_group_id") or os.environ.get("POSTPROXY_PROFILE_GROUP_ID"))
+
+def public_base_url(settings: Optional[dict] = None) -> str:
+    settings = settings or {}
+    return (settings.get("public_base_url") or os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+
+def postproxy_callback_url(settings: Optional[dict] = None) -> str:
+    base = public_base_url(settings)
+    return f"{base}/api/postproxy/callback" if base else ""
+
+def sanitize_postproxy_error(err: Exception) -> str:
+    text = str(err)
+    text = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._\-]+", r"\1[redacted]", text)
+    text = re.sub(r"(?i)((?:api[_-]?key|token|secret)[=:\s]+)[A-Za-z0-9._\-]+", r"\1[redacted]", text)
+    return text[:500]
+
+def load_postproxy_cache() -> dict:
+    cached = read_json_file(POSTPROXY_CACHE_FILE, {})
+    return cached if isinstance(cached, dict) else {}
+
+def save_postproxy_cache(cache: dict):
+    write_json_file(POSTPROXY_CACHE_FILE, cache)
+
+def empty_postproxy_channels() -> dict:
+    return {
+        platform: {"live": False, "status": "disconnected", "profile_id": None, "name": None, "placements": []}
+        for platform in POSTPROXY_SOCIAL_PLATFORMS
+    }
+
+def placement_target_id(placement: dict) -> Optional[str]:
+    if not isinstance(placement, dict):
+        return None
+    for key in ("id", "page_id", "organization_id", "location_id"):
+        value = placement.get(key)
+        if value:
+            return str(value)
+    metadata = placement.get("metadata") or {}
+    if isinstance(metadata, dict):
+        for key in ("id", "page_id", "organization_id", "location_id"):
+            value = metadata.get(key)
+            if value:
+                return str(value)
+    return None
+
+def sanitize_placement(placement: dict) -> dict:
+    return {
+        "id": placement_target_id(placement),
+        "name": (placement or {}).get("name") or "",
+        "metadata": (placement or {}).get("metadata") or {},
+    }
+
+def sanitize_profile(profile: dict, placements: Optional[List[dict]] = None) -> dict:
+    return {
+        "id": profile.get("id") or "",
+        "name": profile.get("name") or "",
+        "platform": profile.get("platform") or "",
+        "status": profile.get("status") or "",
+        "profile_group_id": profile.get("profile_group_id") or "",
+        "expires_at": profile.get("expires_at"),
+        "post_count": profile.get("post_count") or 0,
+        "placements": [sanitize_placement(item) for item in (placements or [])],
+    }
+
+def persist_facebook_page_id(page_id: str):
+    if not page_id:
+        return
+    try:
+        file_settings = read_json_file(SETTINGS_FILE, {})
+        if isinstance(file_settings, dict) and not file_settings.get("facebook_page_id"):
+            file_settings["facebook_page_id"] = page_id
+            write_json_file(SETTINGS_FILE, file_settings)
+    except Exception as e:
+        logger.warning(f"Could not persist facebook_page_id from PostProxy: {e}")
+
+def split_twitter_chunks(text: str, limit: int = TWITTER_CHAR_LIMIT) -> List[str]:
+    remaining = (text or "").strip()
+    if not remaining:
+        return [""]
+    chunks = []
+    while remaining:
+        if len(remaining) <= limit:
+            chunks.append(remaining)
+            break
+        window = remaining[:limit]
+        cut = window.rfind(" ")
+        if cut < max(1, int(limit * 0.4)):
+            cut = limit
+        chunks.append(remaining[:cut].rstrip())
+        remaining = remaining[cut:].lstrip()
+    return chunks or [""]
+
+def twitter_body_and_thread(post: dict) -> tuple:
+    raw_thread = post.get("thread") or []
+    if isinstance(raw_thread, list) and any(str(item).strip() for item in raw_thread):
+        chunks = []
+        for item in raw_thread:
+            chunks.extend([part for part in split_twitter_chunks(str(item)) if part])
+        if not chunks:
+            chunks = [part for part in split_twitter_chunks(post.get("text") or "") if part] or [""]
+        return chunks[0], [{"body": part} for part in chunks[1:]]
+    chunks = split_twitter_chunks(post.get("text") or "")
+    return chunks[0], [{"body": part} for part in chunks[1:]]
+
+def sync_postproxy_state(settings: dict, persist: bool = True) -> dict:
+    result = {
+        "ok": False,
+        "configured": postproxy_key_configured(settings),
+        "enabled": bool(settings.get("postproxy_enabled")),
+        "group_configured": postproxy_group_configured(settings),
+        "profile_group_id": settings.get("postproxy_profile_group_id") or os.environ.get("POSTPROXY_PROFILE_GROUP_ID") or "",
+        "profiles": [],
+        "channels": empty_postproxy_channels(),
+        "facebook_page_id": None,
+        "linkedin_organization_id": None,
+        "error": None,
+        "synced_at": datetime.now().isoformat(),
+    }
+    if not result["configured"]:
+        result["error"] = "PostProxy API key is not configured."
+        if persist:
+            save_postproxy_cache(result)
+        return result
+    try:
+        groups = postproxy_profile_groups(settings)
+        profiles = postproxy_profiles(settings)
+        if not result["profile_group_id"] and groups:
+            result["profile_group_id"] = groups[0].get("id") or ""
+            result["group_configured"] = bool(result["profile_group_id"])
+        facebook_page_id = None
+        linkedin_org_id = None
+        sanitized = []
+        for profile in profiles:
+            platform = platform_to_postproxy(profile.get("platform") or "")
+            placements = []
+            if platform in ("facebook", "linkedin", "pinterest", "telegram", "google_business") and profile.get("id"):
+                try:
+                    placements = postproxy_placements(settings, profile.get("id"))
+                except Exception as e:
+                    logger.warning(f"PostProxy placements fetch failed for {platform}: {sanitize_postproxy_error(e)}")
+                    placements = []
+            row = sanitize_profile(profile, placements)
+            sanitized.append(row)
+            if platform in result["channels"]:
+                live = profile.get("status") == "active"
+                result["channels"][platform] = {
+                    "live": live,
+                    "status": profile.get("status") or "unknown",
+                    "profile_id": profile.get("id"),
+                    "name": profile.get("name"),
+                    "placements": row["placements"],
+                }
+            if platform == "facebook":
+                for item in placements:
+                    target = placement_target_id(item)
+                    if target and not facebook_page_id:
+                        facebook_page_id = target
+            if platform == "linkedin":
+                for item in placements:
+                    target = placement_target_id(item)
+                    if target and not linkedin_org_id:
+                        linkedin_org_id = target
+        result["profiles"] = sanitized
+        result["facebook_page_id"] = facebook_page_id
+        result["linkedin_organization_id"] = linkedin_org_id
+        result["ok"] = True
+        if persist:
+            save_postproxy_cache(result)
+            if facebook_page_id:
+                persist_facebook_page_id(facebook_page_id)
+        return result
+    except Exception as e:
+        result["error"] = sanitize_postproxy_error(e)
+        logger.warning(f"PostProxy sync failed: {result['error']}")
+        if persist:
+            cached = load_postproxy_cache()
+            cached["error"] = result["error"]
+            cached["ok"] = False
+            cached["synced_at"] = result["synced_at"]
+            save_postproxy_cache(cached)
+        return result
+
+def ensure_postproxy_cache(settings: dict) -> dict:
+    cache = load_postproxy_cache()
+    if cache.get("synced_at") and (cache.get("ok") or cache.get("profiles") or cache.get("error")):
+        return cache
+    if postproxy_key_configured(settings):
+        return sync_postproxy_state(settings)
+    return cache
+
+def postproxy_active_platforms(settings: Optional[dict] = None) -> List[str]:
+    cache = load_postproxy_cache()
+    if settings and not cache.get("channels"):
+        cache = ensure_postproxy_cache(settings)
+    channels = cache.get("channels") or {}
+    return [platform for platform, item in channels.items() if isinstance(item, dict) and item.get("live")]
+
+def resolve_cached_placement_id(platform: str, field: str) -> Optional[str]:
+    cache = load_postproxy_cache()
+    value = cache.get(field)
+    if value:
+        return str(value)
+    channels = cache.get("channels") or {}
+    for item in (channels.get(platform) or {}).get("placements") or []:
+        target = placement_target_id(item) if isinstance(item, dict) else None
+        if target:
+            return target
+    return None
+
+def resolve_facebook_page_id(settings: dict) -> Optional[str]:
+    page_id = resolve_cached_placement_id("facebook", "facebook_page_id") or settings.get("facebook_page_id")
+    if page_id:
+        return str(page_id)
+    profile = postproxy_profile_for_platform(settings, "facebook")
     if not profile:
         return None
     placements = postproxy_placements(settings, profile.get("id", ""))
-    if not placements:
+    for item in placements:
+        target = placement_target_id(item)
+        if target:
+            cache = load_postproxy_cache()
+            cache["facebook_page_id"] = target
+            save_postproxy_cache(cache)
+            persist_facebook_page_id(target)
+            return target
+    return None
+
+def resolve_linkedin_organization_id(settings: dict) -> Optional[str]:
+    org_id = resolve_cached_placement_id("linkedin", "linkedin_organization_id")
+    if org_id:
+        return str(org_id)
+    profile = postproxy_profile_for_platform(settings, "linkedin")
+    if not profile:
         return None
-    return placements[0].get("id")
+    placements = postproxy_placements(settings, profile.get("id", ""))
+    for item in placements:
+        target = placement_target_id(item)
+        if target:
+            cache = load_postproxy_cache()
+            cache["linkedin_organization_id"] = target
+            save_postproxy_cache(cache)
+            return target
+    return None
+
+def postproxy_status_payload(settings: dict, live: bool = False) -> dict:
+    state = sync_postproxy_state(settings) if live else ensure_postproxy_cache(settings)
+    if not state:
+        state = {
+            "ok": False,
+            "configured": postproxy_key_configured(settings),
+            "enabled": bool(settings.get("postproxy_enabled")),
+            "group_configured": postproxy_group_configured(settings),
+            "profile_group_id": settings.get("postproxy_profile_group_id") or os.environ.get("POSTPROXY_PROFILE_GROUP_ID") or "",
+            "profiles": [],
+            "channels": empty_postproxy_channels(),
+            "facebook_page_id": None,
+            "linkedin_organization_id": None,
+            "error": None,
+            "synced_at": None,
+        }
+    return {
+        "status": "SUCCESS" if state.get("ok") else "ERROR",
+        "configured": bool(state.get("configured")),
+        "enabled": bool(state.get("enabled")),
+        "group_configured": bool(state.get("group_configured")),
+        "profile_group_id": state.get("profile_group_id") or "",
+        "profiles": state.get("profiles") or [],
+        "channels": state.get("channels") or empty_postproxy_channels(),
+        "facebook_page_id": state.get("facebook_page_id"),
+        "linkedin_organization_id": state.get("linkedin_organization_id"),
+        "error": state.get("error"),
+        "synced_at": state.get("synced_at"),
+        "has_facebook_page_id": bool(state.get("facebook_page_id")),
+        "has_linkedin_organization_id": bool(state.get("linkedin_organization_id")),
+    }
+
+def first_postproxy_placement_id(settings: dict, platform: str) -> Optional[str]:
+    mapped = platform_to_postproxy(platform)
+    if mapped == "facebook":
+        return resolve_facebook_page_id(settings)
+    if mapped == "linkedin":
+        return resolve_linkedin_organization_id(settings)
+    cached = resolve_cached_placement_id(mapped, f"{mapped}_placement_id")
+    if cached:
+        return cached
+    profile = postproxy_profile_for_platform(settings, mapped)
+    if not profile:
+        return None
+    placements = postproxy_placements(settings, profile.get("id", ""))
+    for item in placements:
+        target = placement_target_id(item)
+        if target:
+            return target
+    return None
 
 def postproxy_media_url(post: dict, settings: dict, platforms: List[str]) -> Optional[str]:
     if not post.get("video_path"):
@@ -943,15 +1236,19 @@ def publish_via_postproxy(post: dict, settings: dict, platforms: List[str]) -> d
         return {"successes": [], "errors": ["PostProxy: no supported platforms selected."]}
     media_url = postproxy_media_url(post, settings, mapped_platforms)
 
-    def publish_batch(batch_platforms: List[str], include_media: bool) -> dict:
+    def publish_batch(batch_platforms: List[str], include_media: bool, body: Optional[str] = None, thread: Optional[List[dict]] = None) -> dict:
         platform_params = {}
         if "instagram" in batch_platforms and include_media:
             platform_params["instagram"] = {"format": "reel"}
         if "facebook" in batch_platforms:
-            page_id = first_postproxy_placement_id(settings, "facebook")
+            page_id = resolve_facebook_page_id(settings)
             if not page_id:
-                raise ValueError("Facebook PostProxy profile has no available Page placement.")
+                raise ValueError("Facebook PostProxy profile has no available Page placement. Connect a Facebook Page and Refresh.")
             platform_params["facebook"] = {"page_id": page_id}
+        if "linkedin" in batch_platforms:
+            org_id = resolve_linkedin_organization_id(settings)
+            if org_id:
+                platform_params["linkedin"] = {"organization_id": org_id}
         if "google_business" in batch_platforms:
             location_id = first_postproxy_placement_id(settings, "google_business")
             if not location_id:
@@ -965,27 +1262,40 @@ def publish_via_postproxy(post: dict, settings: dict, platforms: List[str]) -> d
             }
         payload = {
             "post": {
-                "body": post.get("text", ""),
+                "body": body if body is not None else post.get("text", ""),
                 "draft": False,
             },
             "profiles": batch_platforms,
         }
+        if thread:
+            payload["thread"] = thread
         if include_media and media_url:
             payload["media"] = [media_url]
         if platform_params:
             payload["platforms"] = platform_params
         return postproxy_post(settings, "/posts", payload, timeout=180)
 
+    def expand_batches(source_platforms: List[str], include_media: bool) -> List[tuple]:
+        twitter_in = [p for p in source_platforms if p == "twitter"]
+        others = [p for p in source_platforms if p != "twitter"]
+        rows = []
+        if others:
+            rows.append((others, include_media, post.get("text", ""), None))
+        if twitter_in:
+            body, thread = twitter_body_and_thread(post)
+            rows.append((twitter_in, include_media, body, thread or None))
+        return rows
+
     batches = []
     if media_url and "google_business" in mapped_platforms:
         media_platforms = [p for p in mapped_platforms if p != "google_business"]
         if media_platforms:
-            batches.append((media_platforms, True))
-        batches.append((["google_business"], False))
+            batches.extend(expand_batches(media_platforms, True))
+        batches.append((["google_business"], False, post.get("text", ""), None))
     else:
-        batches.append((mapped_platforms, bool(media_url)))
+        batches.extend(expand_batches(mapped_platforms, bool(media_url)))
 
-    results = [publish_batch(batch_platforms, include_media) for batch_platforms, include_media in batches]
+    results = [publish_batch(batch_platforms, include_media, body, thread) for batch_platforms, include_media, body, thread in batches]
     platform_results = []
     for result in results:
         platform_results.extend(result.get("platforms") or [])
@@ -1079,6 +1389,14 @@ def get_settings():
         val = masked_settings.get(k, "")
         if val:
             masked_settings[k] = val[:4] + "*" * (len(val) - 8) + val[-4:] if len(val) > 8 else "********"
+    cache = ensure_postproxy_cache(settings)
+    channels = cache.get("channels") or empty_postproxy_channels()
+    masked_settings["postproxy_configured"] = postproxy_key_configured(settings)
+    masked_settings["postproxy_group_configured"] = postproxy_group_configured(settings)
+    masked_settings["postproxy_active_platforms"] = [
+        platform for platform, item in channels.items() if isinstance(item, dict) and item.get("live")
+    ]
+    masked_settings["postproxy_channels"] = channels
     return masked_settings
 
 @app.post("/api/settings")
@@ -1094,21 +1412,41 @@ def update_settings(data: SettingsSchema):
     save_settings(new_data)
     return {"message": "Settings updated successfully."}
 
+@app.get("/api/postproxy/status")
+def get_postproxy_status():
+    settings = load_settings()
+    payload = postproxy_status_payload(settings, live=True)
+    if payload.get("error") and not payload.get("configured"):
+        return payload
+    return payload
+
+@app.post("/api/postproxy/sync")
+def sync_postproxy_profiles():
+    settings = load_settings()
+    return postproxy_status_payload(settings, live=True)
+
 @app.get("/api/postproxy/profiles")
 def get_postproxy_profiles():
     settings = load_settings()
-    try:
-        groups = postproxy_profile_groups(settings)
-        profiles = postproxy_profiles(settings)
-        return {
-            "status": "SUCCESS",
-            "enabled": bool(settings.get("postproxy_enabled")),
-            "profile_group_id": settings.get("postproxy_profile_group_id") or (groups[0]["id"] if groups else ""),
-            "groups": groups,
-            "profiles": profiles,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    payload = postproxy_status_payload(settings, live=True)
+    if payload.get("error") and not payload.get("profiles"):
+        raise HTTPException(status_code=400, detail=payload["error"])
+    return payload
+
+@app.get("/api/postproxy/callback")
+def postproxy_oauth_callback(request: Request):
+    params = request.query_params
+    failed = False
+    for key in ("error", "error_description", "failure"):
+        if params.get(key):
+            failed = True
+    status_val = (params.get("status") or params.get("postproxy") or "").lower()
+    if status_val in ("failure", "failed", "error", "denied"):
+        failed = True
+    if str(params.get("success") or "").lower() in ("false", "0"):
+        failed = True
+    flag = "failure" if failed else "ok"
+    return RedirectResponse(url=f"/?postproxy={flag}", status_code=302)
 
 @app.get("/api/postproxy/posts/{post_id}")
 def get_postproxy_post_status(post_id: str):
@@ -1116,29 +1454,33 @@ def get_postproxy_post_status(post_id: str):
     try:
         return {"status": "SUCCESS", "post": postproxy_get(settings, f"/posts/{post_id}", timeout=60)}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=sanitize_postproxy_error(e))
 
 @app.post("/api/postproxy/connect")
 def create_postproxy_connection(req: PostProxyConnectRequest):
     settings = load_settings()
     try:
         group_id = req.profile_group_id or settings.get("postproxy_profile_group_id") or resolve_postproxy_profile_group_id(settings)
-        redirect_url = req.redirect_url or f"{settings.get('public_base_url', '').rstrip('/')}/"
+        redirect_url = postproxy_callback_url(settings) or req.redirect_url or f"{public_base_url(settings)}/"
+        if not redirect_url:
+            raise ValueError("PUBLIC_BASE_URL is not configured; cannot start PostProxy OAuth.")
         payload = {
             "platform": platform_to_postproxy(req.platform),
             "redirect_url": redirect_url,
         }
         result = postproxy_post(settings, f"/profile_groups/{group_id}/initialize_connection", payload, timeout=60)
-        return {"status": "SUCCESS", "profile_group_id": group_id, **result}
+        url = result.get("url") or result.get("connection_url")
+        return {**result, "status": "SUCCESS", "profile_group_id": group_id, "url": url, "redirect_url": redirect_url}
     except Exception as e:
-        if "already connected" in str(e).lower():
+        message = sanitize_postproxy_error(e)
+        if "already connected" in message.lower():
             return {
                 "status": "SUCCESS",
                 "already_connected": True,
                 "profile_group_id": req.profile_group_id or settings.get("postproxy_profile_group_id") or "",
-                "message": str(e),
-        }
-        raise HTTPException(status_code=400, detail=str(e))
+                "message": message,
+            }
+        raise HTTPException(status_code=400, detail=message)
 
 @app.post("/api/postproxy/test-publish")
 async def create_postproxy_test_publish(req: ControlledPostProxyPublishRequest):
@@ -2841,13 +3183,22 @@ def build_live_integration_status(settings: dict, state: dict) -> List[dict]:
         ("runway", "Runway", ["runway_api_key"], "video generation"),
     ]
     custom = {item.get("id"): item for item in state.get("integrations", []) if item.get("id")}
+    cache = ensure_postproxy_cache(settings)
+    channels = cache.get("channels") or {}
     rows = []
     for key, name, required, capability in specs:
+        native_ready = all(bool(setting_or_env(settings, item)) for item in required)
+        postproxy_live = False
+        if key == "postproxy":
+            postproxy_live = postproxy_key_configured(settings)
+        elif key in POSTPROXY_SOCIAL_PLATFORMS:
+            postproxy_live = bool((channels.get(key) or {}).get("live"))
         rows.append({
             "id": key,
             "name": name,
-            "status": "credentials_present" if all(bool(setting_or_env(settings, item)) for item in required) else "needs_credentials",
+            "status": "credentials_present" if (native_ready or postproxy_live) else "needs_credentials",
             "capability": capability,
+            "source": "postproxy" if postproxy_live and not native_ready else ("native" if native_ready else "missing"),
             "webhook_url": custom.get(key, {}).get("webhook_url", ""),
             "last_checked": datetime.now().isoformat()
         })
@@ -2978,19 +3329,27 @@ def provider_diagnostics():
 
     if diagnostics["postproxy"]["configured"]:
         try:
-            groups = postproxy_profile_groups(settings)
-            profiles = postproxy_profiles(settings)
+            payload = postproxy_status_payload(settings, live=True)
+            live_platforms = [
+                platform for platform, item in (payload.get("channels") or {}).items()
+                if isinstance(item, dict) and item.get("live")
+            ]
             diagnostics["postproxy"].update({
-                "status": "ready",
-                "message": "PostProxy API is accessible.",
-                "profile_group_id": settings.get("postproxy_profile_group_id") or (groups[0]["id"] if groups else ""),
-                "groups_count": len(groups),
-                "profiles_count": len(profiles),
-                "platforms": sorted({p.get("platform") for p in profiles if p.get("platform")}),
+                "status": "ready" if payload.get("ok") else "blocked",
+                "message": payload.get("error") or (
+                    "PostProxy API is accessible." if live_platforms
+                    else "PostProxy key works, but no active profiles are connected yet."
+                ),
+                "profile_group_id": payload.get("profile_group_id") or "",
+                "profiles_count": len(payload.get("profiles") or []),
+                "platforms": live_platforms,
+                "channels": payload.get("channels") or {},
                 "enabled": bool(settings.get("postproxy_enabled")),
+                "configured": bool(payload.get("configured")),
+                "group_configured": bool(payload.get("group_configured")),
             })
         except Exception as e:
-            diagnostics["postproxy"].update({"status": "blocked", "message": str(e)})
+            diagnostics["postproxy"].update({"status": "blocked", "message": sanitize_postproxy_error(e)})
     else:
         diagnostics["postproxy"].update({"status": "needs_credentials", "message": "Add PostProxy API Key in Settings."})
 
