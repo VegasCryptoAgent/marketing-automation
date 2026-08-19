@@ -14,6 +14,13 @@ function escapeHtml(str) {
         .replace(/'/g, "&#39;");
 }
 
+function shortDate(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     // State variables
     let uploadedVideoPath = "";
@@ -164,31 +171,57 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    function updateDiagnosticBadges(data) {
-        const setActive = (el, active) => {
-            if (!el) return;
-            if (active) {
-                el.textContent = "ACTIVE";
-                el.style.background = "rgba(40, 167, 69, 0.2)";
-                el.style.color = "#28a745";
-            } else {
-                el.textContent = "INACTIVE";
-                el.style.background = "rgba(220, 53, 69, 0.2)";
-                el.style.color = "#dc3545";
-            }
-        };
+    const SOCIAL_BADGE_IDS = {
+        twitter: "diag-twitter-status",
+        linkedin: "diag-linkedin-status",
+        instagram: "diag-instagram-status",
+        tiktok: "diag-tiktok-status",
+        youtube: "diag-youtube-status",
+        facebook: "diag-facebook-status",
+        threads: "diag-threads-status"
+    };
 
-        setActive(document.getElementById("diag-gemini-status"), !!data.gemini_api_key);
-        setActive(document.getElementById("diag-runway-status"), !!data.runway_api_key);
-        setActive(document.getElementById("diag-fal-status"), !!data.fal_api_key);
-        setActive(document.getElementById("diag-twitter-status"), !!(data.twitter_consumer_key && data.twitter_consumer_secret && data.twitter_access_token && data.twitter_access_token_secret));
-        setActive(document.getElementById("diag-linkedin-status"), !!data.linkedin_access_token);
-        setActive(document.getElementById("diag-instagram-status"), !!(data.instagram_access_token && data.instagram_business_account_id));
-        setActive(document.getElementById("diag-tiktok-status"), !!data.tiktok_access_token);
-        setActive(document.getElementById("diag-youtube-status"), !!(data.youtube_client_id && data.youtube_client_secret && data.youtube_refresh_token));
-        setActive(document.getElementById("diag-facebook-status"), !!(data.facebook_page_access_token && data.facebook_page_id));
-        setActive(document.getElementById("diag-threads-status"), !!(data.threads_access_token && data.threads_user_id));
-        setActive(document.getElementById("diag-report-email-status"), !!(data.report_email_to && ((data.report_email_provider === "resend" && data.resend_api_key && data.resend_from) || (data.report_email_provider !== "resend" && data.smtp_host))));
+    function paintBadge(el, label, tone) {
+        if (!el) return;
+        el.textContent = label;
+        if (tone === "live") {
+            el.style.background = "rgba(40, 167, 69, 0.2)";
+            el.style.color = "#28a745";
+        } else if (tone === "check") {
+            el.style.background = "rgba(255, 193, 7, 0.18)";
+            el.style.color = "#ffc107";
+        } else {
+            el.style.background = "rgba(220, 53, 69, 0.2)";
+            el.style.color = "#dc3545";
+        }
+    }
+
+    function updateDiagnosticBadges(data, socials) {
+        paintBadge(document.getElementById("diag-gemini-status"), data.gemini_api_key ? "ACTIVE" : "INACTIVE", data.gemini_api_key ? "live" : "off");
+        paintBadge(document.getElementById("diag-runway-status"), data.runway_api_key ? "ACTIVE" : "INACTIVE", data.runway_api_key ? "live" : "off");
+        paintBadge(document.getElementById("diag-fal-status"), data.fal_api_key ? "ACTIVE" : "INACTIVE", data.fal_api_key ? "live" : "off");
+        const native = {
+            twitter: !!(data.twitter_consumer_key && data.twitter_consumer_secret && data.twitter_access_token && data.twitter_access_token_secret),
+            linkedin: !!data.linkedin_access_token,
+            instagram: !!(data.instagram_access_token && data.instagram_business_account_id),
+            tiktok: !!data.tiktok_access_token,
+            youtube: !!(data.youtube_client_id && data.youtube_client_secret && data.youtube_refresh_token),
+            facebook: !!(data.facebook_page_access_token && data.facebook_page_id),
+            threads: !!(data.threads_access_token && data.threads_user_id)
+        };
+        const byPlatform = {};
+        (socials || []).forEach(item => { if (item && item.platform) byPlatform[item.platform] = item; });
+        Object.keys(SOCIAL_BADGE_IDS).forEach(platform => {
+            const channel = byPlatform[platform];
+            if (channel && channel.connected) {
+                const label = channel.status === "EXPIRED" ? "EXPIRED" : "LIVE";
+                paintBadge(document.getElementById(SOCIAL_BADGE_IDS[platform]), label, label === "LIVE" ? "live" : "check");
+            } else {
+                paintBadge(document.getElementById(SOCIAL_BADGE_IDS[platform]), native[platform] ? "CHECK" : "INACTIVE", native[platform] ? "check" : "off");
+            }
+        });
+        const emailReady = !!(data.report_email_to && ((data.report_email_provider === "resend" && data.resend_api_key && data.resend_from) || (data.report_email_provider !== "resend" && data.smtp_host)));
+        paintBadge(document.getElementById("diag-report-email-status"), emailReady ? "ACTIVE" : "INACTIVE", emailReady ? "live" : "off");
     }
 
     function setDiagnosticBadge(id, status) {
@@ -203,9 +236,14 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderProviderDiagnostics(data) {
         const diagnostics = data.diagnostics || {};
         setDiagnosticBadge("diag-report-email-status", diagnostics.report_email?.status);
-        setDiagnosticBadge("diag-twitter-status", diagnostics.twitter_mentions?.status);
-        setDiagnosticBadge("diag-youtube-status", diagnostics.youtube_comments?.status);
-        setDiagnosticBadge("diag-instagram-status", diagnostics.postproxy?.status === "ready" && diagnostics.postproxy?.platforms?.includes("instagram") ? "ready" : diagnostics.postproxy?.status);
+        const socials = diagnostics.postproxy?.socials || [];
+        socials.forEach(channel => {
+            const badgeId = SOCIAL_BADGE_IDS[channel.platform];
+            if (!badgeId) return;
+            if (channel.connected) {
+                paintBadge(document.getElementById(badgeId), channel.status === "EXPIRED" ? "EXPIRED" : "LIVE", channel.status === "EXPIRED" ? "check" : "live");
+            }
+        });
 
         const output = document.getElementById("provider-diagnostics-output");
         if (!output) return;
@@ -236,31 +274,94 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function renderPostProxyProfiles(data) {
         const output = document.getElementById("postproxy-profiles-output");
-        if (!output) return;
+        const socials = data.socials || [];
         const profiles = data.profiles || [];
         const groupId = data.profile_group_id || "";
         const groupInput = document.getElementById("postproxy-profile-group-id");
         if (groupInput && !groupInput.value && groupId) groupInput.value = groupId;
-        if (!profiles.length) {
-            output.innerHTML = `<div class="growth-list-item"><strong>No connected profiles</strong><span>Use a connect button above to authorize a social account.</span></div>`;
+        if (output) {
+            if (!profiles.length) {
+                output.innerHTML = `<div class="growth-list-item"><strong>No connected profiles</strong><span>Use Connect on a platform to authorize through PostProxy.</span></div>`;
+            } else {
+                output.innerHTML = profiles.map(profile => {
+                    const placement = (data.placements || {})[profile.platform] || {};
+                    const placementLabel = placement.placement_id
+                        ? `${placement.param || "placement"} ${placement.placement_id}${placement.placement_name ? " · " + placement.placement_name : ""}`
+                        : "no placement id";
+                    return `
+                    <div class="growth-list-item">
+                        <strong>${escapeHtml(profile.platform)} · ${escapeHtml(profile.name || "")}</strong>
+                        <span>${escapeHtml(profile.status || "")} · ${escapeHtml(placementLabel)} · ${escapeHtml(profile.post_count || 0)} posts</span>
+                        ${profile.expires_at ? `<p>Expires ${escapeHtml(shortDate(profile.expires_at))}</p>` : ""}
+                    </div>`;
+                }).join("");
+            }
+        }
+        renderCockpitSocials(data);
+        updateDiagnosticBadges(window.__lastSettings || {}, socials);
+    }
+
+    function renderCockpitSocials(data) {
+        const grid = document.getElementById("cockpit-postproxy-socials");
+        const status = document.getElementById("cockpit-postproxy-status");
+        if (!grid) return;
+        const socials = data.socials || [];
+        const pp = data.postproxy || data;
+        if (status) {
+            if (pp.key_valid === false || data.error || pp.error) {
+                status.textContent = pp.error || data.error || "PostProxy key was rejected or no profiles could be synced.";
+                status.dataset.tone = "error";
+            } else if (pp.configured === false) {
+                status.textContent = "PostProxy API key is not configured on this service.";
+                status.dataset.tone = "error";
+            } else {
+                const count = socials.filter(item => item.connected).length;
+                status.textContent = `${count} PostProxy profile${count === 1 ? "" : "s"} synced${pp.synced_at ? " · " + shortDate(pp.synced_at) : ""}.`;
+                status.dataset.tone = "ok";
+            }
+        }
+        if (!socials.length) {
+            grid.innerHTML = `<div class="growth-empty">No PostProxy profiles yet. Use Connect to authorize a social through PostProxy.</div>`;
             return;
         }
-        output.innerHTML = profiles.map(profile => `
-            <div class="growth-list-item">
-                <strong>${escapeHtml(profile.platform)} · ${escapeHtml(profile.name)}</strong>
-                <span>${escapeHtml(profile.status)} · group ${escapeHtml(profile.profile_group_id || groupId)} · ${escapeHtml(profile.post_count || 0)} posts</span>
-                ${profile.expires_at ? `<p>Expires ${escapeHtml(shortDate(profile.expires_at))}</p>` : ""}
-            </div>
-        `).join("");
+        grid.innerHTML = socials.map(channel => {
+            const connected = !!channel.connected;
+            const action = connected ? "Reconnect" : "Connect";
+            const extra = [
+                channel.profile_name,
+                channel.placement_id ? `${channel.placement_param || "placement"} ${channel.placement_id}` : "",
+                channel.expires_at ? `expires ${shortDate(channel.expires_at)}` : ""
+            ].filter(Boolean).join(" · ");
+            return `
+                <div class="socials-row">
+                    <div>
+                        <strong>${escapeHtml(channel.label || channel.platform)}</strong>
+                        <span>${escapeHtml(extra || "Not connected in PostProxy")}</span>
+                    </div>
+                    <div class="socials-row-actions">
+                        <span class="socials-pill socials-pill-${escapeHtml((channel.status || "INACTIVE").toLowerCase())}">${escapeHtml(channel.status || "INACTIVE")}</span>
+                        <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="${escapeHtml(channel.platform)}" data-reconnect="${connected ? "true" : "false"}">${action}</button>
+                    </div>
+                </div>`;
+        }).join("");
+        grid.querySelectorAll(".postproxy-connect-btn").forEach(btn => {
+            btn.addEventListener("click", () => connectPostProxyPlatform(btn.dataset.platform, btn.dataset.reconnect === "true"));
+        });
+    }
+
+    function setPostProxyBusy(busy, label) {
+        ["postproxy-refresh-profiles-btn", "cockpit-postproxy-sync-btn"].forEach(id => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
+            btn.disabled = busy;
+            if (label) btn.textContent = label;
+            else btn.textContent = id === "cockpit-postproxy-sync-btn" ? "Refresh / Sync" : "Refresh / Sync PostProxy";
+        });
     }
 
     function refreshPostProxyProfiles() {
-        const btn = document.getElementById("postproxy-refresh-profiles-btn");
-        if (btn) {
-            btn.disabled = true;
-            btn.textContent = "Refreshing...";
-        }
-        return fetch("/api/postproxy/profiles")
+        setPostProxyBusy(true, "Syncing...");
+        return fetch("/api/postproxy/sync", { method: "POST" })
             .then(res => {
                 if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "PostProxy profile refresh failed") });
                 return res.json();
@@ -269,23 +370,26 @@ document.addEventListener("DOMContentLoaded", () => {
                 renderPostProxyProfiles(data);
                 return data;
             })
-            .catch(err => showToast(err.message, true))
-            .finally(() => {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.textContent = "Refresh PostProxy Profiles";
+            .catch(err => {
+                const status = document.getElementById("cockpit-postproxy-status");
+                if (status) {
+                    status.textContent = err.message;
+                    status.dataset.tone = "error";
                 }
-            });
+                showToast(err.message, true);
+            })
+            .finally(() => setPostProxyBusy(false));
     }
 
-    function connectPostProxyPlatform(platform) {
+    function connectPostProxyPlatform(platform, reconnect = false) {
         fetch("/api/postproxy/connect", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 platform,
+                reconnect,
                 profile_group_id: document.getElementById("postproxy-profile-group-id")?.value || "",
-                redirect_url: window.location.origin + "/"
+                redirect_url: window.location.origin + "/api/postproxy/callback"
             })
         })
         .then(res => {
@@ -293,12 +397,16 @@ document.addEventListener("DOMContentLoaded", () => {
             return res.json();
         })
         .then(data => {
-            if (data.already_connected) {
+            if (data.url) {
+                window.open(data.url, "_blank", "noopener,noreferrer");
+                showToast(`PostProxy ${reconnect ? "reconnect" : "connect"} opened for ${platform}.`);
+            } else if (data.already_connected && data.dashboard_url) {
+                window.open(data.dashboard_url, "_blank", "noopener,noreferrer");
+                showToast(`PostProxy ${platform} is already connected. Opened the PostProxy dashboard.`);
+                refreshPostProxyProfiles();
+            } else if (data.already_connected) {
                 showToast(`PostProxy ${platform} is already connected.`);
                 refreshPostProxyProfiles();
-            } else if (data.url) {
-                window.open(data.url, "_blank", "noopener,noreferrer");
-                showToast(`PostProxy ${platform} connection opened.`);
             } else {
                 showToast("PostProxy did not return a connection URL.", true);
             }
@@ -442,9 +550,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 document.getElementById("wizard-autonomous-posting").checked = data.autonomous_posting || false;
 
                 // Update health diagnostics
+                window.__lastSettings = data;
                 updateDiagnosticBadges(data);
                 fetchProviderDiagnostics();
-                if (data.postproxy_api_key) refreshPostProxyProfiles();
+                refreshPostProxyProfiles();
             })
             .catch(err => {
                 console.error("Failed to load settings:", err);
@@ -506,9 +615,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (postProxyRefreshBtn) {
         postProxyRefreshBtn.addEventListener("click", refreshPostProxyProfiles);
     }
+    const cockpitSyncBtn = document.getElementById("cockpit-postproxy-sync-btn");
+    if (cockpitSyncBtn) {
+        cockpitSyncBtn.addEventListener("click", refreshPostProxyProfiles);
+    }
     document.querySelectorAll(".postproxy-connect-btn").forEach(btn => {
-        btn.addEventListener("click", () => connectPostProxyPlatform(btn.dataset.platform));
+        btn.addEventListener("click", () => connectPostProxyPlatform(btn.dataset.platform, btn.dataset.reconnect === "true"));
     });
+    const postproxyReturn = new URLSearchParams(window.location.search).get("postproxy");
+    if (postproxyReturn === "connected") {
+        showToast("PostProxy account connected. Syncing profiles...");
+        refreshPostProxyProfiles();
+    } else if (postproxyReturn === "failed") {
+        showToast("PostProxy connection was cancelled or failed.", true);
+    }
 
     saveSettingsBtn.addEventListener("click", () => {
         const autoPlatforms = collectAutoPlatforms("auto-platform");
