@@ -224,7 +224,7 @@ def run_multi_agent_pipeline(
         """
 
         context_response = client.models.generate_content(
-            model='gemini-2.5-pro',
+            model='gemini-3.1-pro-preview',
             contents=[video_file, context_prompt],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -272,7 +272,7 @@ def run_multi_agent_pipeline(
         """
 
         copy_response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.6-flash',
             contents=[copy_prompt],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -573,7 +573,7 @@ def run_live_trend_scanner(
 
         try:
             response = client.models.generate_content(
-                model='gemini-2.5-pro',
+                model='gemini-3.1-pro-preview',
                 contents=search_prompt,
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())],
@@ -584,7 +584,7 @@ def run_live_trend_scanner(
             logger.warning(f"Google Search grounding failed inside trend scanner: {grounding_err}. Falling back to news-context-only generation.")
             update_job_status(job_id, "PROCESSING", 30, "Search grounding unavailable, falling back to AI news context...")
             response = client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-3.6-flash',
                 contents=search_prompt,
                 config=types.GenerateContentConfig(
                     system_instruction="You are a real-time social media trend researcher specialized in finding trending cinematic AI contents across Reddit, YouTube, Twitter/X, LinkedIn, and Instagram."
@@ -619,7 +619,7 @@ def run_live_trend_scanner(
 
         # Step 2: Structure as JSON using Gemini 2.5 Flash
         copy_response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.6-flash',
             contents=adaptation_prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -1279,7 +1279,7 @@ def generate_virality_score(post_text: str, video_prompt: str, platform: str, se
     Provide a numeric score, brief reasoning, and 2-4 concrete, specific suggestions to increase the score.
     """
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.6-flash',
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -1316,7 +1316,7 @@ def draft_engagement_reply(mention_text: str, mention_author: str, settings: Dic
     what they said — do not write a generic thank-you. No hashtags unless truly natural. No markdown.
     """
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.6-flash',
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -1363,7 +1363,7 @@ def repurpose_video_link_copy(url: str, settings: Dict[str, Any]) -> RepurposedC
     
     try:
         search_res = client.models.generate_content(
-            model='gemini-2.5-pro',
+            model='gemini-3.1-pro-preview',
             contents=search_prompt,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
@@ -1373,7 +1373,7 @@ def repurpose_video_link_copy(url: str, settings: Dict[str, Any]) -> RepurposedC
     except Exception as e:
         logger.warning(f"Google Search grounding failed inside repurposer: {e}. Falling back to standard generation.")
         search_res = client.models.generate_content(
-            model='gemini-2.5-pro',
+            model='gemini-3.1-pro-preview',
             contents=search_prompt,
             config=types.GenerateContentConfig(
                 system_instruction="You are a social media research assistant specialized in finding information about links."
@@ -1407,7 +1407,7 @@ def repurpose_video_link_copy(url: str, settings: Dict[str, Any]) -> RepurposedC
     """
     
     copy_res = client.models.generate_content(
-        model='gemini-2.5-pro',
+        model='gemini-3.1-pro-preview',
         contents=adaptation_prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
