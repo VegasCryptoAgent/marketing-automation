@@ -25,7 +25,7 @@ import requests
 
 from orchestrator import (
     run_multi_agent_pipeline, get_job_status, update_job_status, run_live_trend_scanner,
-    run_video_generation, jobs_status, repurpose_video_link_copy,
+    run_video_generation, normalize_video_duration, jobs_status, repurpose_video_link_copy,
     generate_video_variants, generate_virality_score, draft_engagement_reply,
     render_variant_with_fallback, get_font_path
 )
@@ -1036,7 +1036,7 @@ def postproxy_reply_to_comment(settings: dict, target: dict) -> dict:
 class GenerateVideoRequest(BaseModel):
     prompt: str
     engine: str = "google_veo"
-    duration: int = 5
+    duration: int = 8
 
 @app.get("/api/auth/status")
 def auth_status(request: Request):
@@ -1514,7 +1514,7 @@ def generate_video(req: GenerateVideoRequest, background_tasks: BackgroundTasks)
         prompt=req.prompt,
         settings=settings,
         engine=req.engine,
-        duration=req.duration
+        duration=normalize_video_duration(req.engine, req.duration)
     )
     
     return {"job_id": job_id}
@@ -2241,7 +2241,7 @@ async def execute_autonomous_autopost(settings: dict):
     # Trigger video generation and await completion (engine/duration from Autopilot settings)
     video_job_id = str(uuid.uuid4())
     video_engine = settings.get("autonomous_video_engine", "fal_hailuo_23")
-    video_duration = int(settings.get("autonomous_video_duration", 10))
+    video_duration = normalize_video_duration(video_engine, int(settings.get("autonomous_video_duration", 10)))
     logger.info(f"Autopilot: Starting {video_duration}-second video rendering using {video_engine}...")
     await loop.run_in_executor(
         None,
@@ -3762,7 +3762,7 @@ def run_growth_automation_rules(state: dict, settings: dict) -> List[dict]:
                     continue
                 video_job_id = str(uuid.uuid4())
                 engine = settings.get("autonomous_video_engine", "fal_hailuo_23")
-                duration = int(settings.get("autonomous_video_duration", 10))
+                duration = normalize_video_duration(engine, int(settings.get("autonomous_video_duration", 10)))
                 run_video_generation(
                     job_id=video_job_id,
                     prompt=trend.get("recreated_video_prompt") or trend.get("studio_adaptation_concept") or trend.get("title") or "cinematic AI trend recreation",
@@ -4067,10 +4067,15 @@ def run_multiscene_video_job(job_id: str, req: MultiSceneVideoRequest, settings:
             "fal_hailuo_02": 10,
             "fal_seedance_fast": 12,
             "fal_ltx_fast": 20,
-            "google_veo_lite": 5,
+            "google_veo_lite": 8,
+            "google_veo": 8,
+            "google_veo_fast": 8,
         }
         max_duration = max_duration_by_engine.get(req.engine, 10)
-        scene_duration = max(2, min(int(req.scene_duration or 6), max_duration))
+        default_scene = 8 if req.engine.startswith("google_veo") else (10 if max_duration >= 10 else max_duration)
+        scene_duration = max(2, min(int(req.scene_duration or default_scene), max_duration))
+        if req.engine.startswith("google_veo"):
+            scene_duration = 8
         update_job_status(job_id, "PROCESSING", 5, f"Preparing {scene_count}-scene long-form render...")
 
         clip_paths = []
