@@ -971,7 +971,9 @@ body {
 /* Header Navigation Styles */
 .main-nav {
     display: flex;
-    gap: 1.5rem;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.75rem;
+    justify-content: center;
 }
 .nav-link {
     background: none;
@@ -1617,4 +1619,151 @@ body {
 }
 .switch-toggle input:checked + .slider-toggle:before {
     transform: translateX(20px);
+}
+
+
+/* Marketing OS */
+.mos-lede {
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+    line-height: 1.5;
+    max-width: 62rem;
+    margin-top: 0.45rem;
+}
+.mos-help {
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    line-height: 1.45;
+    margin-bottom: 0.85rem;
+}
+.mos-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+.mos-pill-off {
+    background: rgba(244, 63, 94, 0.12);
+    color: #fb7185;
+    border: 1px solid rgba(244, 63, 94, 0.28);
+}
+.mos-pill-on {
+    background: rgba(16, 185, 129, 0.12);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.28);
+}
+.mos-brand-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1rem;
+}
+.mos-brand-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.mos-brand-grid textarea,
+#mos-launch-notes {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.32);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 8px;
+    padding: 0.7rem 0.8rem;
+    font-family: inherit;
+    font-size: 0.88rem;
+    resize: vertical;
+}
+.mos-table-wrap {
+    overflow-x: auto;
+    margin-top: 0.85rem;
+}
+.mos-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+.mos-table th,
+.mos-table td {
+    border-bottom: 1px solid var(--border-color);
+    padding: 0.65rem 0.5rem;
+    text-align: left;
+    vertical-align: top;
+    color: var(--text-secondary);
+}
+.mos-table th {
+    color: var(--text-primary);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.mos-table td strong {
+    color: var(--accent-color);
+}
+.mos-recommend {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+.mos-rec-card {
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 0.75rem;
+}
+.mos-rec-card strong {
+    color: var(--text-primary);
+    font-size: 0.82rem;
+}
+.mos-rec-card p {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-top: 0.35rem;
+}
+.mos-gaps p,
+.mos-muted {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-top: 0.4rem;
+}
+.mos-packet {
+    display: grid;
+    gap: 0.85rem;
+    margin-top: 0.75rem;
+}
+.mos-block {
+    background: rgba(0, 0, 0, 0.24);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
+}
+.mos-block h4 {
+    font-family: 'Outfit', sans-serif;
+    margin-bottom: 0.45rem;
+}
+.mos-block pre {
+    white-space: pre-wrap;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+.mos-block ul {
+    padding-left: 1.1rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+@media (max-width: 900px) {
+    .mos-brand-grid {
+        grid-template-columns: 1fr;
+    }
 }

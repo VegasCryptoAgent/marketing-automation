@@ -942,12 +942,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const navAutomation = document.getElementById("nav-automation");
     const navRepurposer = document.getElementById("nav-repurposer");
     const navGrowth = document.getElementById("nav-growth");
+    const navMarketing = document.getElementById("nav-marketing");
     
     const pipelineView = document.getElementById("pipeline-view");
     const campaignsView = document.getElementById("campaigns-view");
     const automationView = document.getElementById("automation-view");
     const repurposerView = document.getElementById("repurposer-view");
     const growthView = document.getElementById("growth-view");
+    const marketingView = document.getElementById("marketing-view");
+
+    function clearMainNav() {
+        [navPipeline, navCampaigns, navAutomation, navRepurposer, navGrowth, navMarketing].forEach(btn => {
+            if (btn) btn.classList.remove("active");
+        });
+    }
 
     navPipeline.addEventListener("click", () => {
         navPipeline.classList.add("active");
@@ -955,6 +963,7 @@ document.addEventListener("DOMContentLoaded", () => {
         navAutomation.classList.remove("active");
         if (navRepurposer) navRepurposer.classList.remove("active");
         if (navGrowth) navGrowth.classList.remove("active");
+        if (navMarketing) navMarketing.classList.remove("active");
         pipelineView.scrollIntoView({ behavior: "smooth", block: "start" });
     });
 
@@ -964,6 +973,7 @@ document.addEventListener("DOMContentLoaded", () => {
         navAutomation.classList.remove("active");
         if (navRepurposer) navRepurposer.classList.remove("active");
         if (navGrowth) navGrowth.classList.remove("active");
+        if (navMarketing) navMarketing.classList.remove("active");
         campaignsView.scrollIntoView({ behavior: "smooth", block: "start" });
         loadCampaigns(); // Fetch campaigns JSON if not loaded
     });
@@ -974,6 +984,7 @@ document.addEventListener("DOMContentLoaded", () => {
         navCampaigns.classList.remove("active");
         if (navRepurposer) navRepurposer.classList.remove("active");
         if (navGrowth) navGrowth.classList.remove("active");
+        if (navMarketing) navMarketing.classList.remove("active");
         automationView.scrollIntoView({ behavior: "smooth", block: "start" });
         fetchSettings(); // Refresh diagnostics and input states
     });
@@ -985,6 +996,7 @@ document.addEventListener("DOMContentLoaded", () => {
             navCampaigns.classList.remove("active");
             navAutomation.classList.remove("active");
             if (navGrowth) navGrowth.classList.remove("active");
+            if (navMarketing) navMarketing.classList.remove("active");
             repurposerView.scrollIntoView({ behavior: "smooth", block: "start" });
         });
     }
@@ -996,6 +1008,7 @@ document.addEventListener("DOMContentLoaded", () => {
             navCampaigns.classList.remove("active");
             navAutomation.classList.remove("active");
             if (navRepurposer) navRepurposer.classList.remove("active");
+            if (navMarketing) navMarketing.classList.remove("active");
             growthView.scrollIntoView({ behavior: "smooth", block: "start" });
             fetchGrowthOS();
         });
@@ -3593,6 +3606,281 @@ document.addEventListener("DOMContentLoaded", () => {
                 });
         }, 4000);
     }
+
+
+    if (navMarketing && marketingView) {
+        navMarketing.addEventListener("click", () => {
+            clearMainNav();
+            navMarketing.classList.add("active");
+            marketingView.scrollIntoView({ behavior: "smooth", block: "start" });
+            fetchMarketingOS();
+        });
+    }
+
+    function mosFieldMap() {
+        return {
+            product: {
+                one_sentence: document.getElementById("mos-product-one"),
+                mechanism: document.getElementById("mos-product-mechanism"),
+                does_not: document.getElementById("mos-product-not"),
+            },
+            audience: {
+                who_buys: document.getElementById("mos-aud-who"),
+                belief_before: document.getElementById("mos-aud-belief"),
+                worry_2am: document.getElementById("mos-aud-worry"),
+                alternative: document.getElementById("mos-aud-alt"),
+            },
+            positioning: {
+                only_we_can_say: document.getElementById("mos-pos-only"),
+                category: document.getElementById("mos-pos-cat"),
+                competitors: document.getElementById("mos-pos-comp"),
+            },
+            proof: {
+                numbers: document.getElementById("mos-proof-num"),
+                customers: document.getElementById("mos-proof-cust"),
+                needs_legal: document.getElementById("mos-proof-legal"),
+            },
+            voice: {
+                how_we_sound: document.getElementById("mos-voice-how"),
+                how_we_never_sound: document.getElementById("mos-voice-never"),
+                always_words: document.getElementById("mos-voice-always"),
+                never_words: document.getElementById("mos-voice-banned"),
+            },
+            constraints: {
+                regulatory: document.getElementById("mos-con-reg"),
+                off_limits: document.getElementById("mos-con-off"),
+            }
+        };
+    }
+
+    function collectBrandContext() {
+        const map = mosFieldMap();
+        const out = {};
+        Object.keys(map).forEach(section => {
+            out[section] = {};
+            Object.keys(map[section]).forEach(key => {
+                out[section][key] = map[section][key] ? map[section][key].value.trim() : "";
+            });
+        });
+        return out;
+    }
+
+    function fillBrandContext(brand) {
+        const map = mosFieldMap();
+        Object.keys(map).forEach(section => {
+            const src = (brand && brand[section]) || {};
+            Object.keys(map[section]).forEach(key => {
+                if (map[section][key]) map[section][key].value = src[key] || "";
+            });
+        });
+        const meta = document.getElementById("mos-brand-meta");
+        if (meta) {
+            const filled = brand && brand.filled_fields != null ? brand.filled_fields : 0;
+            const ctx = brand && brand.contextualised ? "contextualised" : "un-contextualised";
+            meta.textContent = brand && brand.updated_at ? `${ctx} · ${filled} fields · saved ${brand.updated_at}` : ctx;
+        }
+    }
+
+    function setSocialClawPill(status) {
+        const pill = document.getElementById("mos-socialclaw-pill");
+        const box = document.getElementById("mos-socialclaw-status");
+        const configured = !!(status && status.configured);
+        const label = configured ? `SocialClaw: ${status.status}` : "SocialClaw: not configured";
+        if (pill) {
+            pill.textContent = label;
+            pill.classList.toggle("mos-pill-on", configured);
+            pill.classList.toggle("mos-pill-off", !configured);
+        }
+        if (box) box.textContent = (status && status.message) || label;
+        const previewBtn = document.getElementById("mos-socialclaw-preview");
+        if (previewBtn) previewBtn.disabled = !configured;
+    }
+
+    function renderHookMatrix(matrix) {
+        const tbody = document.querySelector("#mos-hook-table tbody");
+        const rec = document.getElementById("mos-hook-recommended");
+        const meta = document.getElementById("mos-hook-meta");
+        const gaps = document.getElementById("mos-hook-gaps");
+        if (!matrix) return;
+        if (meta) {
+            meta.textContent = `${matrix.tactic_count || 0} hooks · corpus: ${matrix.corpus || "—"} · ${matrix.honesty || ""}`;
+        }
+        if (rec) {
+            const items = matrix.recommended_first_tests || [];
+            rec.innerHTML = items.map(item => `<div class="mos-rec-card"><strong>${escapeHtml(item.score)} · ${escapeHtml(item.tactic)}</strong><p>${escapeHtml(item.spoken)}</p></div>`).join("");
+        }
+        if (tbody) {
+            tbody.innerHTML = (matrix.hooks || []).map(hook => {
+                const score = hook.score || {};
+                const flags = (score.flags || []).join("; ");
+                return `<tr>
+                    <td>${escapeHtml(hook.id)}</td>
+                    <td title="${escapeHtml(flags)}"><strong>${escapeHtml(score.total)}</strong></td>
+                    <td>${escapeHtml(hook.tactic)}</td>
+                    <td>${escapeHtml(hook.format)}</td>
+                    <td>${escapeHtml(hook.visual)}</td>
+                    <td>${escapeHtml(hook.spoken)}</td>
+                    <td>${escapeHtml(hook.text)}</td>
+                    <td>${escapeHtml(hook.corpus_source)}</td>
+                </tr>`;
+            }).join("");
+        }
+        if (gaps) {
+            gaps.innerHTML = (matrix.gaps || []).map(g => `<p>${escapeHtml(g)}</p>`).join("");
+        }
+    }
+
+    function renderLaunchPacket(packet) {
+        const out = document.getElementById("mos-packet-output");
+        const status = document.getElementById("mos-packet-status");
+        if (!packet || !out) return;
+        window.__mosLastPacket = packet;
+        if (status) status.textContent = `${packet.what_ships || "Packet"} · ${packet.metric || ""} · ${packet.launch_date || ""}`;
+        const social = packet.social || {};
+        const li = social.linkedin || {};
+        const x = social.x || {};
+        const ig = social.instagram || {};
+        const email = (packet.asset_stack && packet.asset_stack.email) || {};
+        const faq = ((packet.asset_stack && packet.asset_stack.faq) || []).map(item => `<li><strong>${escapeHtml(item.q)}</strong> ${escapeHtml(item.a)}</li>`).join("");
+        const timeline = (packet.timeline || []).map(item => `<li><strong>${escapeHtml(item.when)}</strong> — ${escapeHtml(item.phase)}: ${escapeHtml(item.work)}</li>`).join("");
+        const gaps = (packet.gaps || []).map(g => `<p>${escapeHtml(g)}</p>`).join("");
+        const flags = (packet.flagged || []).map(g => `<p>${escapeHtml(g)}</p>`).join("");
+        out.innerHTML = `
+            <article class="mos-block"><h4>The story</h4><p>${escapeHtml(packet.story)}</p><p class="mos-muted">${escapeHtml(packet.constraint)}</p></article>
+            <article class="mos-block"><h4>Timeline</h4><ul>${timeline}</ul></article>
+            <article class="mos-block"><h4>LinkedIn</h4><pre>${escapeHtml(li.body || "")}</pre></article>
+            <article class="mos-block"><h4>X thread</h4><pre>${escapeHtml((x.thread || []).join("\\n\\n"))}</pre></article>
+            <article class="mos-block"><h4>Instagram</h4><pre>${escapeHtml(ig.body || "")}</pre></article>
+            <article class="mos-block"><h4>Email</h4><pre>${escapeHtml(email.body || "")}</pre></article>
+            <article class="mos-block"><h4>FAQ</h4><ul>${faq}</ul></article>
+            <article class="mos-block"><h4>Flagged / gaps</h4>${flags}${gaps}</article>
+        `;
+    }
+
+    function fetchMarketingOS() {
+        fetch("/api/marketing-os")
+            .then(res => res.json())
+            .then(data => {
+                fillBrandContext(data.brand || {});
+                setSocialClawPill(data.socialclaw || {});
+                if (data.last_hooks) renderHookMatrix(data.last_hooks);
+                if (data.last_packet) renderLaunchPacket(data.last_packet);
+                const brandStatus = document.getElementById("mos-brand-status");
+                if (brandStatus) {
+                    brandStatus.textContent = data.brand && data.brand.contextualised
+                        ? "Brand context loaded. Hook and launch generators will use it."
+                        : "Brand context is thin. Output will be labeled un-contextualised.";
+                }
+            })
+            .catch(err => {
+                const brandStatus = document.getElementById("mos-brand-status");
+                if (brandStatus) brandStatus.textContent = err.message;
+            });
+    }
+
+    const mosBrandSave = document.getElementById("mos-brand-save");
+    if (mosBrandSave) {
+        mosBrandSave.addEventListener("click", () => {
+            fetch("/api/marketing-os/brand-context", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(collectBrandContext())
+            })
+            .then(res => res.json())
+            .then(data => {
+                fillBrandContext(data);
+                const el = document.getElementById("mos-brand-status");
+                if (el) el.textContent = data.contextualised ? "Saved. Generators will use this context." : "Saved, but still un-contextualised — fill at least four fields.";
+                showToast("Brand context saved.");
+            })
+            .catch(err => showToast(err.message, true));
+        });
+    }
+    const mosBrandReload = document.getElementById("mos-brand-reload");
+    if (mosBrandReload) {
+        mosBrandReload.addEventListener("click", fetchMarketingOS);
+    }
+    const mosHookBtn = document.getElementById("mos-hook-generate");
+    if (mosHookBtn) {
+        mosHookBtn.addEventListener("click", () => {
+            mosHookBtn.disabled = true;
+            fetch("/api/marketing-os/hooks", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    segment: document.getElementById("mos-hook-segment")?.value || "",
+                    extra_notes: document.getElementById("mos-hook-notes")?.value || ""
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                renderHookMatrix(data);
+                showToast("Hook matrix generated.");
+            })
+            .catch(err => showToast(err.message, true))
+            .finally(() => { mosHookBtn.disabled = false; });
+        });
+    }
+    const mosLaunchBtn = document.getElementById("mos-launch-generate");
+    if (mosLaunchBtn) {
+        mosLaunchBtn.addEventListener("click", () => {
+            mosLaunchBtn.disabled = true;
+            fetch("/api/marketing-os/launch-packet", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    what_ships: document.getElementById("mos-launch-ships")?.value || "",
+                    metric: document.getElementById("mos-launch-metric")?.value || "",
+                    launch_date: document.getElementById("mos-launch-date")?.value || "",
+                    extra_notes: document.getElementById("mos-launch-notes")?.value || ""
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                renderLaunchPacket(data);
+                showToast("Launch packet generated.");
+            })
+            .catch(err => showToast(err.message, true))
+            .finally(() => { mosLaunchBtn.disabled = false; });
+        });
+    }
+    const mosCopyLi = document.getElementById("mos-copy-linkedin");
+    if (mosCopyLi) {
+        mosCopyLi.addEventListener("click", () => {
+            const body = window.__mosLastPacket && window.__mosLastPacket.social && window.__mosLastPacket.social.linkedin
+                ? window.__mosLastPacket.social.linkedin.body
+                : "";
+            if (!body) {
+                showToast("Generate a packet first.", true);
+                return;
+            }
+            navigator.clipboard.writeText(body).then(() => showToast("LinkedIn copy copied.")).catch(err => showToast(err.message, true));
+        });
+    }
+    const mosScBtn = document.getElementById("mos-socialclaw-preview");
+    if (mosScBtn) {
+        mosScBtn.addEventListener("click", () => {
+            const box = document.getElementById("mos-socialclaw-status");
+            mosScBtn.disabled = true;
+            fetch("/api/marketing-os/socialclaw/submit", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ apply: false, packet: window.__mosLastPacket || null })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (box) box.textContent = data.message || data.status || "SocialClaw response";
+                if (data.status === "not configured") showToast("SocialClaw is not configured.", true);
+                else if (data.ok) showToast("SocialClaw preview returned.");
+                else showToast(data.message || "SocialClaw did not accept the preview.", true);
+            })
+            .catch(err => showToast(err.message, true))
+            .finally(() => {
+                fetch("/api/marketing-os/socialclaw").then(r => r.json()).then(setSocialClawPill).catch(() => {});
+            });
+        });
+    }
+
 
     attachGrowthHandlers();
 
