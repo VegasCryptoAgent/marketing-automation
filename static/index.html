@@ -1061,6 +1061,18 @@
                         </div>
                     </div>
 
+                    <div id="postproxy-socials-panel" class="socials-panel">
+                        <div class="socials-panel-header">
+                            <div>
+                                <h3>Socials / PostProxy</h3>
+                                <p>All socials connect through Bret Jenny's PostProxy account. Sync profiles, then Connect or Reconnect a platform.</p>
+                            </div>
+                            <button id="cockpit-postproxy-sync-btn" type="button" class="secondary-btn">Refresh / Sync</button>
+                        </div>
+                        <div id="cockpit-postproxy-status" class="socials-panel-status">Checking PostProxy…</div>
+                        <div id="cockpit-postproxy-socials" class="socials-grid"></div>
+                    </div>
+
                     <!-- DIRECT KEY INPUTS -->
                     <div style="max-height: 290px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.8rem; padding-right: 0.25rem;">
                         <div class="form-toggle-group" style="padding: 0.25rem 0; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.2rem;">
@@ -1575,8 +1587,9 @@
                         <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="youtube">Connect YouTube</button>
                         <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="linkedin">Connect LinkedIn</button>
                         <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="twitter">Connect X</button>
+                        <button type="button" class="secondary-btn postproxy-connect-btn" data-platform="threads">Connect Threads</button>
                     </div>
-                    <button id="postproxy-refresh-profiles-btn" type="button" class="secondary-btn" style="width: 100%; margin-top: 0.75rem;">Refresh PostProxy Profiles</button>
+                    <button id="postproxy-refresh-profiles-btn" type="button" class="secondary-btn" style="width: 100%; margin-top: 0.75rem;">Refresh / Sync PostProxy</button>
                     <div id="postproxy-profiles-output" class="growth-list" style="margin-top: 0.75rem;"></div>
                 </details>
 
