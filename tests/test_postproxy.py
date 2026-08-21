@@ -185,3 +185,17 @@ def test_mixed_publish_splits_vertical_and_landscape_media(monkeypatch):
         and set(payload["profiles"]) & {"youtube", "facebook", "instagram", "tiktok"}
     ]
     assert mixed_batches == []
+
+
+def test_publish_via_postproxy_refuses_without_video(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("PostProxy must not be called without the original video")
+
+    monkeypatch.setattr(main, "postproxy_post", boom)
+    result = main.publish_via_postproxy(
+        {"text": "caption only", "video_path": None},
+        {"postproxy_enabled": True, "postproxy_api_key": "test"},
+        ["linkedin", "twitter", "youtube"],
+    )
+    assert result["successes"] == []
+    assert any("without the viral video" in err for err in result["errors"])

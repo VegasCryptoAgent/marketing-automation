@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     ffmpeg \
     curl \
+    unzip \
     chromium \
     libnss3 \
     libnspr4 \
@@ -39,6 +40,12 @@ ENV HYPERFRAMES_BROWSER_PATH=/usr/local/bin/chromium-no-sandbox
 # Install yt-dlp binary to /usr/local/bin/yt-dlp
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
+
+# Deno is required by current yt-dlp YouTube JS challenges (player_client=tv).
+RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh \
+    && chmod a+rx /usr/local/bin/deno
+
+ENV PATH="/usr/local/bin:${PATH}"
 
 WORKDIR /app
 

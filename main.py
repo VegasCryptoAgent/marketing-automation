@@ -6,6 +6,7 @@ import logging
 import asyncio
 import html
 import subprocess
+import shutil
 import hmac
 import hashlib
 import secrets
@@ -185,6 +186,7 @@ DEFAULT_SETTINGS = {
     "fal_api_key": "",
     "autonomous_posting": False,
     "autonomous_hour": 9,
+    "autonomous_hours": [],
     "autonomous_platforms": ["twitter", "linkedin"],
     "autonomous_video_engine": "fal_hailuo_23",
     "autonomous_video_duration": 10,
@@ -255,6 +257,8 @@ def load_settings():
                     settings[k] = int(env_val)
                 except:
                     pass
+            elif k == "autonomous_hours":
+                settings[k] = parse_hour_list(env_val)
             elif k in ("autonomous_platforms", "instagram_search_hashtags"):
                 try:
                     settings[k] = json.loads(env_val)
@@ -264,6 +268,58 @@ def load_settings():
                 settings[k] = env_val
                 
     return settings
+
+
+def parse_hour_list(raw: Any) -> List[int]:
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, (list, tuple)):
+        values = list(raw)
+    else:
+        text = str(raw).strip()
+        try:
+            loaded = json.loads(text)
+            values = loaded if isinstance(loaded, list) else [loaded]
+        except Exception:
+            values = [part.strip() for part in text.split(",") if part.strip()]
+    hours: List[int] = []
+    for value in values:
+        try:
+            hours.append(int(value) % 24)
+        except (TypeError, ValueError):
+            continue
+    return hours
+
+
+def autonomous_hours_from_settings(settings: dict) -> List[int]:
+    hours = parse_hour_list(settings.get("autonomous_hours"))
+    if not hours:
+        try:
+            hours = [int(settings.get("autonomous_hour", 9)) % 24]
+        except (TypeError, ValueError):
+            hours = [9]
+    seen = set()
+    ordered: List[int] = []
+    for hour in hours:
+        if hour not in seen:
+            seen.add(hour)
+            ordered.append(hour)
+    return ordered
+
+
+def autonomous_slot_id(now: datetime, hour: Optional[int] = None) -> str:
+    current_hour = now.hour if hour is None else int(hour)
+    return f"{now.date().isoformat()}-{current_hour}"
+
+
+def due_autonomous_slot(now: datetime, settings: dict, last_slot: Optional[str]) -> Optional[str]:
+    hours = autonomous_hours_from_settings(settings)
+    if now.hour not in hours:
+        return None
+    slot = autonomous_slot_id(now)
+    if slot == last_slot:
+        return None
+    return slot
 
 def save_settings(settings):
     try:
@@ -1465,7 +1521,16 @@ def publish_via_postproxy(post: dict, settings: dict, platforms: List[str]) -> d
     mapped_platforms = [platform_to_postproxy(p) for p in platforms if platform_to_postproxy(p) in POSTPROXY_SUPPORTED_PLATFORMS]
     if not mapped_platforms:
         return {"successes": [], "errors": ["PostProxy: no supported platforms selected."]}
-    has_media = bool(post.get("video_path"))
+    video_path = (post.get("video_path") or "").strip()
+    has_media = bool(video_path)
+    if not has_media:
+        logger.error("Refused to post without the viral video")
+        return {
+            "successes": [],
+            "errors": [
+                "Refused to post without the viral video. Every Autopilot post must include the original scan clip."
+            ],
+        }
     if has_media and any(uses_vertical_media(p) for p in mapped_platforms):
         try:
             ensure_vertical_video_variant(post)
@@ -1628,6 +1693,9 @@ def update_settings(data: SettingsSchema):
         if "*" in new_data[k]:
             new_data[k] = current.get(k, "")
 
+    for key, value in current.items():
+        if key not in new_data:
+            new_data[key] = value
     save_settings(new_data)
     return {"message": "Settings updated successfully."}
 
@@ -2172,6 +2240,63 @@ def _is_placeholder_video_url(target_url: str) -> bool:
     return any(marker in target_url for marker in markers)
 
 
+def resolve_ytdlp_cookies_file() -> Optional[str]:
+    """Optional Netscape cookies so YouTube stops treating Railway as a bot."""
+    for key in ("YTDLP_COOKIES_FILE", "YOUTUBE_COOKIES_FILE"):
+        candidate = (os.environ.get(key) or "").strip()
+        if candidate and os.path.exists(candidate):
+            return candidate
+    volume = os.path.join(STATE_DIR, "youtube.cookies")
+    raw = (os.environ.get("YTDLP_COOKIES_B64") or "").strip()
+    if raw:
+        try:
+            os.makedirs(STATE_DIR, exist_ok=True)
+            with open(volume, "wb") as handle:
+                handle.write(base64.b64decode(raw))
+            os.chmod(volume, 0o600)
+        except Exception as exc:
+            logger.warning(f"Could not materialize YTDLP_COOKIES_B64: {exc}")
+    if os.path.exists(volume) and os.path.getsize(volume) > 0:
+        return volume
+    return None
+
+
+def ytdlp_shared_args() -> List[str]:
+    args = ["--no-playlist", "--geo-bypass", "--socket-timeout", "30"]
+    deno = shutil.which("deno") or ("/usr/local/bin/deno" if os.path.exists("/usr/local/bin/deno") else None)
+    if deno:
+        args.extend(["--js-runtimes", "deno"])
+    cookies = resolve_ytdlp_cookies_file()
+    if cookies:
+        args.extend(["--cookies", cookies])
+    return args
+
+
+def _is_youtube_source(url: str) -> bool:
+    lowered = (url or "").lower()
+    return "youtube.com" in lowered or "youtu.be" in lowered or lowered.startswith("ytsearch")
+
+
+def ytdlp_download_attempts(url: str, max_duration_sec: int) -> List[List[str]]:
+    section = f"*0-{int(max_duration_sec)}"
+    sectioned = ["-f", "b[ext=mp4]/b", "--download-sections", section, "--force-keyframes-at-cuts"]
+    merged = ["-f", "bv*+ba/b", "--merge-output-format", "mp4"]
+    if _is_youtube_source(url):
+        return [
+            sectioned + ["--extractor-args", "youtube:player_client=tv,web_safari,android_vr"],
+            merged + ["--extractor-args", "youtube:player_client=tv,web_safari,android_vr"],
+            merged + ["--extractor-args", "youtube:player_client=web_embedded,tv_embedded"],
+            merged + ["--extractor-args", "youtube:player_client=mweb,web"],
+            merged + ["--impersonate", "chrome", "--extractor-args", "youtube:player_client=tv,web_safari"],
+        ]
+    return [
+        sectioned,
+        ["-f", "b[ext=mp4]/b"],
+        merged,
+        merged + ["--impersonate", "chrome"],
+    ]
+
+
 def download_and_trim_original_video(
     url: str,
     title: Optional[str] = None,
@@ -2203,43 +2328,41 @@ def download_and_trim_original_video(
     def run_ytdlp(extra_args, download_url):
         cmd = [
             get_binary_path("yt-dlp"),
+            *ytdlp_shared_args(),
             *extra_args,
-            "--no-playlist",
             "-o", out_template,
             download_url,
         ]
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec)
 
-    section = f"*0-{int(max_duration_sec)}"
+    last_err = ""
+    result = None
     try:
-        result = run_ytdlp(
-            ["-f", "b[ext=mp4]/b", "--download-sections", section, "--force-keyframes-at-cuts"],
-            target_url,
-        )
-        if result.returncode != 0:
-            logger.warning(f"yt-dlp sectioned mp4 download failed: {result.stderr}. Trying full-file fallback...")
-            result = run_ytdlp(["-f", "b[ext=mp4]/b"], target_url)
-        if result.returncode != 0:
-            logger.warning(f"yt-dlp strict mp4 check failed: {result.stderr}. Trying merge fallback...")
-            result = run_ytdlp(["--merge-output-format", "mp4"], target_url)
+        for extra in ytdlp_download_attempts(target_url, max_duration_sec):
+            result = run_ytdlp(extra, target_url)
+            if result.returncode == 0:
+                break
+            last_err = (result.stderr or result.stdout or "yt-dlp failed").strip()
+            logger.warning(f"yt-dlp attempt failed: {last_err[-400:]}")
 
-        if result.returncode != 0 and not allow_fallback:
+        if (result is None or result.returncode != 0) and not allow_fallback:
             raise OriginalVideoDownloadError(
                 "Could not download this specific video. The source platform may block automated "
-                "downloads (common for Instagram/TikTok/X without login) or the link may be private "
-                "or invalid. The generated commentary text is still usable without the video."
+                "downloads or the YouTube player challenge failed. Skip this clip and try the next "
+                "scanned trend. Do not post captions without the original video."
+                + (f" Last error: {last_err[-400:]}" if last_err else "")
             )
 
-        if result.returncode != 0 and title and not str(target_url).startswith("ytsearch1:"):
+        if (result is None or result.returncode != 0) and title and not str(target_url).startswith("ytsearch1:"):
             logger.info(f"Direct download failed. Swapping to final YouTube search fallback for: {title}")
             result = run_ytdlp(["--merge-output-format", "mp4"], f"ytsearch1:{title}")
 
-        if result.returncode != 0 and allow_fallback:
+        if (result is None or result.returncode != 0) and allow_fallback:
             logger.info("Search fallback failed. Using verified cinematic trailer fallback...")
             result = run_ytdlp(["--merge-output-format", "mp4"], "https://www.youtube.com/watch?v=aqz-KE-bpKQ")
             if result.returncode != 0:
                 raise OriginalVideoDownloadError(f"Failed to download video: {result.stderr}")
-        elif result.returncode != 0:
+        elif result is None or result.returncode != 0:
             raise OriginalVideoDownloadError("Could not download this specific video and fallback is disabled.")
     except subprocess.TimeoutExpired:
         raise OriginalVideoDownloadError(f"Video scraping request timed out (limit: {timeout_sec} seconds).")
@@ -2854,56 +2977,166 @@ async def execute_scheduled_post(post: dict):
             break
     save_scheduled_posts(posts)
 
+MAX_AUTOPILOT_SOURCE_TRIES = 8
+
+
+def _trend_source_url(trend: Optional[dict]) -> str:
+    if not isinstance(trend, dict):
+        return ""
+    return (trend.get("url") or "").strip()
+
+
+def collect_autopilot_trend_candidates(
+    forced_trend: Optional[dict] = None,
+    scanned_trends: Optional[List[dict]] = None,
+) -> List[dict]:
+    candidates: List[dict] = []
+    seen = set()
+
+    def add(trend: Optional[dict]):
+        url = _trend_source_url(trend)
+        if not url or url in seen:
+            return
+        seen.add(url)
+        candidates.append(trend)
+
+    add(forced_trend)
+    for trend in scanned_trends or []:
+        add(trend)
+    for trend in (load_growth_os().get("last_trend_scan") or []):
+        add(trend)
+    return candidates[:MAX_AUTOPILOT_SOURCE_TRIES]
+
+
+async def _scan_autopilot_trends(settings: dict) -> List[dict]:
+    loop = asyncio.get_running_loop()
+    job_id = str(uuid.uuid4())
+    await loop.run_in_executor(None, run_live_trend_scanner, job_id, settings)
+    status = jobs_status.get(job_id, {})
+    if status.get("status") != "SUCCESS":
+        logger.error(f"Autonomous trend scanning failed: {status.get('message')}")
+        return []
+    result = status.get("result", {})
+    persist_trend_scan_result(result)
+    trends = result.get("trends") or []
+    return [trend for trend in trends if isinstance(trend, dict) and _trend_source_url(trend)]
+
+
+def _record_failed_autopilot(skipped: List[dict], last_error: str):
+    now = datetime.now()
+    tried = len(skipped)
+    log_post = {
+        "id": str(uuid.uuid4()),
+        "platform": "none",
+        "text": "",
+        "thread": None,
+        "instagram_caption": "",
+        "suggested_hashtags": [],
+        "title": "Autopilot download failed",
+        "scheduled_time": now.isoformat(),
+        "campaign_title": "Autonomous: no original video",
+        "video_path": None,
+        "vertical_video_path": None,
+        "source_video_path": None,
+        "source_url": skipped[0]["url"] if skipped else "",
+        "media_source": "missing",
+        "viral_template_id": None,
+        "status": "FAILED",
+        "error_message": (
+            f"No original video could be downloaded. Tried {tried} source(s). "
+            "Did not post captions and did not call PostProxy. "
+            f"Last error: {last_error or 'download failed'}"
+        ),
+        "skipped_sources": skipped,
+        "posted_at": None,
+    }
+    posts = load_scheduled_posts()
+    posts.append(log_post)
+    save_scheduled_posts(posts)
+    logger.error(log_post["error_message"])
+
+
 async def execute_autonomous_autopost(settings: dict, forced_trend: Optional[dict] = None):
     logger.info("Starting autonomous autopilot pipeline...")
     loop = asyncio.get_running_loop()
-    top_trend = forced_trend if isinstance(forced_trend, dict) and forced_trend.get("url") else None
-
-    if top_trend:
-        logger.info(f"Using provided/persisted pick: {top_trend.get('title') or top_trend.get('url')}")
+    forced = forced_trend if isinstance(forced_trend, dict) and _trend_source_url(forced_trend) else None
+    scanned_this_run: List[dict] = []
+    if forced:
+        logger.info(f"Using provided/persisted pick first: {forced.get('title') or forced.get('url')}")
+        candidates = collect_autopilot_trend_candidates(forced, None)
     else:
-        job_id = str(uuid.uuid4())
-        await loop.run_in_executor(None, run_live_trend_scanner, job_id, settings)
-        status = jobs_status.get(job_id, {})
-        if status.get("status") != "SUCCESS":
-            logger.error(f"Autonomous trend scanning failed: {status.get('message')}")
-            return
-        result = status.get("result", {})
-        persist_trend_scan_result(result)
-        trends = result.get("trends", [])
-        if not trends:
-            logger.error("Autonomous trend scanning found no trends.")
-            return
-        top_trend = trends[0]
-        logger.info(f"Selected top trend: {top_trend['title']}")
+        scanned_this_run = await _scan_autopilot_trends(settings)
+        candidates = collect_autopilot_trend_candidates(None, scanned_this_run)
+    if not candidates:
+        logger.error("Autonomous trend scanning found no trends.")
+        _record_failed_autopilot([], "trend scanning found no downloadable source URLs")
+        return
 
-    source_url = (top_trend.get("url") or "").strip()
+    downloaded_file = None
+    top_trend = None
+    skipped: List[dict] = []
+    video_error = None
+    for trend in candidates:
+        source_url = _trend_source_url(trend)
+        title = trend.get("title") or "Viral clip"
+        logger.info(f"Autopilot: downloading original video from {source_url} (no Veo/FAL/Runway generation).")
+        try:
+            downloaded_file = await loop.run_in_executor(
+                None,
+                download_and_trim_original_video,
+                source_url,
+                title,
+                60,
+                False,
+                180,
+            )
+            top_trend = trend
+            break
+        except Exception as download_err:
+            video_error = str(download_err)
+            skipped.append({"url": source_url, "title": title, "error": video_error})
+            logger.error(f"Autopilot: skip {source_url}; trying the next scanned trend. {download_err}")
+
+    if downloaded_file is None and not scanned_this_run:
+        scanned_this_run = await _scan_autopilot_trends(settings)
+        extra = [
+            trend for trend in collect_autopilot_trend_candidates(None, scanned_this_run)
+            if _trend_source_url(trend) not in {item["url"] for item in skipped}
+        ]
+        for trend in extra:
+            source_url = _trend_source_url(trend)
+            title = trend.get("title") or "Viral clip"
+            logger.info(f"Autopilot: downloading original video from {source_url} (no Veo/FAL/Runway generation).")
+            try:
+                downloaded_file = await loop.run_in_executor(
+                    None,
+                    download_and_trim_original_video,
+                    source_url,
+                    title,
+                    60,
+                    False,
+                    180,
+                )
+                top_trend = trend
+                break
+            except Exception as download_err:
+                video_error = str(download_err)
+                skipped.append({"url": source_url, "title": title, "error": video_error})
+                logger.error(f"Autopilot: skip {source_url}; trying the next scanned trend. {download_err}")
+
+    if downloaded_file is None or top_trend is None:
+        _record_failed_autopilot(skipped, video_error or "download failed")
+        return
+
+    source_url = _trend_source_url(top_trend)
     title = top_trend.get("title") or "Viral clip"
+    generated_video_path = f"/static/assets/generated/{os.path.basename(downloaded_file)}"
+    logger.info(f"Autopilot: Original video ready (trimmed to 60s): {generated_video_path}")
     copy = await loop.run_in_executor(None, resolve_autopilot_copy, top_trend, settings)
     linkedin_text = copy["linkedin_text"]
     twitter_thread = copy["twitter_thread"]
     instagram_caption = copy.get("instagram_caption") or ""
     suggested_hashtags = copy.get("suggested_hashtags") or []
-
-    # Repurpose the ORIGINAL viral video: download + trim < 60s. Do not generate a new clip.
-    generated_video_path = None
-    video_error = None
-    logger.info(f"Autopilot: downloading original video from {source_url} (no Veo/FAL/Runway generation).")
-    try:
-        downloaded_file = await loop.run_in_executor(
-            None,
-            download_and_trim_original_video,
-            source_url,
-            title,
-            60,
-            False,
-            180,
-        )
-        generated_video_path = f"/static/assets/generated/{os.path.basename(downloaded_file)}"
-        logger.info(f"Autopilot: Original video ready (trimmed to 60s): {generated_video_path}")
-    except Exception as download_err:
-        video_error = str(download_err)
-        logger.error(f"Autopilot: Original video download failed; staging copy without media. {download_err}")
 
     platforms = settings.get("autonomous_platforms", ["twitter", "linkedin"])
 
@@ -2967,10 +3200,11 @@ async def execute_autonomous_autopost(settings: dict, forced_trend: Optional[dic
         "vertical_video_path": vertical_video_path,
         "source_video_path": original_generated_video_path,
         "source_url": source_url,
-        "media_source": "original_download" if generated_video_path else "missing",
+        "media_source": "original_download",
         "viral_template_id": settings.get("viral_template_style") if settings.get("viral_template_enabled", False) else None,
         "status": "PUBLISHING",
-        "error_message": None if generated_video_path else f"Original video missing: {video_error or 'download failed'}",
+        "error_message": None,
+        "skipped_sources": skipped,
         "posted_at": None
     }
     # Stage the LinkedIn body with guaranteed tags so the queue preview matches live.
@@ -3097,7 +3331,7 @@ ENGAGEMENT_REFRESH_INTERVAL_SECONDS = 900  # 15 minutes
 async def scheduler_loop():
     await asyncio.sleep(5)
     logger.info("Background scheduler loop started.")
-    last_autonomous_date = None
+    last_autonomous_slot = None
     last_metrics_refresh = None
     last_engagement_refresh = None
 
@@ -3127,13 +3361,10 @@ async def scheduler_loop():
             # 2. Check Autonomous Autoposting
             settings = load_settings()
             if settings.get("autonomous_posting", False):
-                current_hour = now.hour
-                target_hour = int(settings.get("autonomous_hour", 9))
-                current_date = now.date().isoformat()
-
-                if current_hour == target_hour and current_date != last_autonomous_date:
-                    logger.info("Autonomous autoposting time reached. Initiating pipeline...")
-                    last_autonomous_date = current_date
+                due_slot = due_autonomous_slot(now, settings, last_autonomous_slot)
+                if due_slot:
+                    logger.info(f"Autonomous autoposting slot {due_slot} reached. Initiating pipeline...")
+                    last_autonomous_slot = due_slot
                     asyncio.create_task(execute_autonomous_autopost(settings))
 
             # 3. Periodically refresh post performance metrics (analytics feedback loop)
