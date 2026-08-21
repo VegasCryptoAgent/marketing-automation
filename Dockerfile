@@ -27,9 +27,11 @@ RUN apt-get update && apt-get install -y \
     fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 22 from NodeSource (HyperFrames requires Node >= 22)
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs
+# Official Node 22 tarball. NodeSource's setup script is not pipefail-safe and
+# can leave Debian's nodejs (no npm) on the image, which breaks hyperframes.
+RUN curl -fsSL https://nodejs.org/dist/v22.18.0/node-v22.18.0-linux-x64.tar.gz \
+    | tar -xz -C /usr/local --strip-components=1 \
+    && node -v && npm -v
 
 RUN printf '%s\n' '#!/bin/sh' 'exec /usr/bin/chromium --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage --disable-gpu "$@"' > /usr/local/bin/chromium-no-sandbox \
     && chmod +x /usr/local/bin/chromium-no-sandbox
