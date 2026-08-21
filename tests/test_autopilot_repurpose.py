@@ -141,8 +141,8 @@ def test_execute_autonomous_autopost_downloads_original_not_generate(monkeypatch
     assert post["error_message"] is None
 
 
-def test_execute_autonomous_autopost_stages_copy_when_download_fails(monkeypatch):
-    calls = {"gen": 0}
+def test_execute_autonomous_autopost_fails_without_video_when_all_downloads_fail(monkeypatch):
+    calls = {"gen": 0, "scan": 0, "publish": 0}
 
     def fake_download(*args, **kwargs):
         raise main.OriginalVideoDownloadError("yt-dlp blocked")
@@ -151,13 +151,21 @@ def test_execute_autonomous_autopost_stages_copy_when_download_fails(monkeypatch
         calls["gen"] += 1
         raise AssertionError("must not generate a replacement clip")
 
+    def fake_scan(job_id, settings):
+        calls["scan"] += 1
+        main.update_job_status(job_id, "SUCCESS", 100, "ok", result={"trends": []})
+
+    def fake_publish(*args, **kwargs):
+        calls["publish"] += 1
+        raise AssertionError("must not call PostProxy without the original video")
+
     saved = {}
-    monkeypatch.setattr(
-        main,
-        "download_and_trim_original_video",
-        fake_download,
-    )
+    monkeypatch.setattr(main, "download_and_trim_original_video", fake_download)
     monkeypatch.setattr(main, "run_video_generation", fake_gen)
+    monkeypatch.setattr(main, "run_live_trend_scanner", fake_scan)
+    monkeypatch.setattr(main, "persist_trend_scan_result", lambda result: None)
+    monkeypatch.setattr(main, "load_growth_os", lambda: {"last_trend_scan": []})
+    monkeypatch.setattr(main, "publish_post_to_platforms", fake_publish)
     monkeypatch.setattr(main, "load_scheduled_posts", lambda: [])
     monkeypatch.setattr(main, "save_scheduled_posts", lambda posts: saved.setdefault("posts", posts))
 
@@ -177,14 +185,102 @@ def test_execute_autonomous_autopost_stages_copy_when_download_fails(monkeypatch
     )
 
     assert calls["gen"] == 0
+    assert calls["publish"] == 0
     post = saved["posts"][0]
-    assert post["status"] == "AWAITING_APPROVAL"
+    assert post["status"] == "FAILED"
     assert post["video_path"] is None
     assert post["media_source"] == "missing"
+    assert post["text"] == ""
     assert "yt-dlp blocked" in post["error_message"]
-    assert post["text"].startswith("copy")
-    assert "#6FrameStudio" in post["text"]
-    assert "#KlingAI" in post["text"]
+    assert "Did not post captions" in post["error_message"]
+
+
+def test_execute_autonomous_autopost_walks_to_next_scanned_url(monkeypatch):
+    second = "https://www.youtube.com/watch?v=secondClip"
+    tried = []
+
+    def fake_download(url, title=None, max_duration_sec=60, allow_fallback=False, timeout_sec=180):
+        tried.append(url)
+        if url == KLING_URL:
+            raise main.OriginalVideoDownloadError("yt-dlp blocked first clip")
+        assert url == second
+        return "/tmp/generated/original_second.mp4"
+
+    saved = {}
+    monkeypatch.setattr(main, "download_and_trim_original_video", fake_download)
+    monkeypatch.setattr(main, "run_video_generation", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no gen")))
+    monkeypatch.setattr(main, "load_growth_os", lambda: {"last_trend_scan": []})
+    monkeypatch.setattr(main, "persist_trend_scan_result", lambda result: None)
+    monkeypatch.setattr(
+        main,
+        "run_live_trend_scanner",
+        lambda job_id, settings: main.update_job_status(
+            job_id,
+            "SUCCESS",
+            100,
+            "ok",
+            result={
+                "trends": [
+                    {
+                        "title": "Second clip",
+                        "url": second,
+                        "recreated_linkedin_post": "Second copy",
+                        "recreated_twitter_thread": ["second tweet"],
+                    }
+                ]
+            },
+        ),
+    )
+    monkeypatch.setattr(main, "load_scheduled_posts", lambda: [])
+    monkeypatch.setattr(main, "save_scheduled_posts", lambda posts: saved.setdefault("posts", posts))
+
+    asyncio.run(
+        main.execute_autonomous_autopost(
+            {
+                "require_autopilot_approval": True,
+                "autonomous_platforms": ["twitter", "linkedin"],
+            },
+            {
+                "title": KLING_TITLE,
+                "url": KLING_URL,
+                "recreated_linkedin_post": "first copy",
+                "recreated_twitter_thread": ["first"],
+            },
+        )
+    )
+
+    assert tried == [KLING_URL, second]
+    post = saved["posts"][0]
+    assert post["status"] == "AWAITING_APPROVAL"
+    assert post["video_path"] == "/static/assets/generated/original_second.mp4"
+    assert post["source_url"] == second
+    assert post["text"].startswith("Second copy")
+
+
+def test_ytdlp_youtube_attempts_use_tv_player_client():
+    attempts = main.ytdlp_download_attempts(KLING_URL, 60)
+    blob = " ".join(" ".join(args) for args in attempts)
+    assert "player_client=tv,web_safari,android_vr" in blob
+    assert "--impersonate" in blob
+
+
+def test_due_autonomous_slot_fires_twice_per_day():
+    morning = __import__("datetime").datetime(2026, 8, 21, 15, 5)
+    evening = __import__("datetime").datetime(2026, 8, 21, 0, 5)
+    settings = {"autonomous_hours": [15, 0], "autonomous_hour": 15}
+    first = main.due_autonomous_slot(morning, settings, None)
+    assert first == "2026-08-21-15"
+    assert main.due_autonomous_slot(morning, settings, first) is None
+    second = main.due_autonomous_slot(evening, settings, first)
+    assert second == "2026-08-21-0"
+    assert main.due_autonomous_slot(evening, settings, second) is None
+
+
+def test_autonomous_hours_from_env_list(monkeypatch):
+    monkeypatch.setenv("AUTONOMOUS_HOURS", "15,0")
+    monkeypatch.setenv("AUTONOMOUS_HOUR", "15")
+    settings = main.load_settings()
+    assert main.autonomous_hours_from_settings(settings) == [15, 0]
 
 
 def test_execute_autonomous_autopost_renders_vertical_for_youtube_facebook(monkeypatch):
