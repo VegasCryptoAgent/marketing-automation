@@ -3394,6 +3394,9 @@ def startup_event():
         logger.info("Background scheduler disabled by DISABLE_BACKGROUND_SCHEDULER=true.")
         return
     asyncio.create_task(scheduler_loop())
+    if os.environ.get("RUN_AUTOPILOT_ON_BOOT", "").lower() == "true":
+        logger.info("RUN_AUTOPILOT_ON_BOOT=true — starting autonomous autopost now.")
+        asyncio.create_task(execute_autonomous_autopost(load_settings()))
 
 @app.post("/api/schedule-post")
 def schedule_post(req: SchedulePostRequest):
