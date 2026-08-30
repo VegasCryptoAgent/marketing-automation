@@ -9,6 +9,7 @@ This is an in-house, standalone multi-agent orchestration tool and dashboard des
 - **Direct Platform API Integration**: Publishes staged posts to X (single tweets or threads) using `tweepy` and LinkedIn using `requests` REST API.
 - **Mock Publish Sandbox Mode**: Allows sandbox execution and copy generation without needing live Twitter or LinkedIn API keys.
 - **Live Trend Scanner radar**: A keyless public-source radar (Hacker News, Google News RSS, YouTube channel RSS, Bluesky, optional Wikipedia pageviews) scores what is actually moving — velocity, acceleration, anomaly, freshness — and feeds real URLs into Gemini so the scanner cites observations instead of inventing links. `GET`/`POST /api/radar` is Gemini-free. Velocity radar idea inspired by ViralRadar (MIT); original implementation. No new API keys.
+- **Shorts pack**: Advisory per-platform vertical-video preflight on the Live Trend Scanner (`GET`/`POST /api/shorts-pack`). Adapts title, caption, and brand hashtags and returns GO / WARN / NO-GO for duration and aspect. Idea from ShortsMCP + a banger-ads cold-reader copy gate (both MIT); original code. Does not publish — Autopilot still uses PostProxy. No new API keys.
 
 ---
 

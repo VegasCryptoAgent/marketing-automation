@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/index.css?v=2.3">
+    <link rel="stylesheet" href="/static/index.css?v=2.4">
 </head>
 <body>
     <div class="glow-bg"></div>
@@ -376,6 +376,34 @@
                         </div>
                         <p class="sidebar-help" id="radar-summary">Keyless public sources. First pass uses engagement + recency; the next scan computes velocity.</p>
                         <div id="radar-items" class="radar-items"></div>
+                    </div>
+
+                    <div class="glass-card radar-strip shorts-pack-strip" id="shorts-pack-strip">
+                        <div class="radar-strip-header">
+                            <h3>Shorts pack</h3>
+                            <button id="shorts-pack-btn" class="secondary-btn" type="button">Build pack</button>
+                        </div>
+                        <p class="sidebar-help" id="shorts-pack-summary">Does not publish. Autopilot still uses PostProxy. Preflight titles, captions, hashtags, duration, and aspect per network.</p>
+                        <div class="shorts-pack-fields">
+                            <label class="shorts-pack-field">Title
+                                <input id="shorts-pack-title" type="text" maxlength="140" placeholder="Night drive cinematic trailer" autocomplete="off">
+                            </label>
+                            <label class="shorts-pack-field">Description
+                                <textarea id="shorts-pack-description" rows="2" placeholder="A cinematic sentence, not a label pill."></textarea>
+                            </label>
+                            <div class="shorts-pack-dims">
+                                <label class="shorts-pack-field">Duration (sec)
+                                    <input id="shorts-pack-duration" type="number" min="0" step="0.1" placeholder="12">
+                                </label>
+                                <label class="shorts-pack-field">Width
+                                    <input id="shorts-pack-width" type="number" min="0" step="1" placeholder="1080">
+                                </label>
+                                <label class="shorts-pack-field">Height
+                                    <input id="shorts-pack-height" type="number" min="0" step="1" placeholder="1920">
+                                </label>
+                            </div>
+                        </div>
+                        <div id="shorts-pack-results" class="shorts-pack-results"></div>
                     </div>
 
                     <button id="scanner-trigger-btn" class="primary-btn glow-btn" style="width:100%; margin-bottom: 1rem;">
@@ -858,6 +886,7 @@
                     <span class="sidebar-help" id="cockpit-radar-summary">Keyless sources only. Does not publish.</span>
                 </div>
                 <div id="cockpit-radar-items" class="radar-items radar-items-row"></div>
+                <p class="sidebar-help cockpit-shorts-recap">Shorts pack is advisory. Autopilot still uses PostProxy.</p>
             </div>
 
             <div class="cockpit-grid" style="display: grid; grid-template-columns: 1.2fr 1.5fr 1.3fr; gap: 1.5rem; align-items: start; margin-bottom: 2rem;">
@@ -1802,6 +1831,6 @@
     <div id="toast" class="toast hidden">Post copied successfully!</div>
     
     <!-- Scripts -->
-    <script src="/static/index.js?v=2.3"></script>
+    <script src="/static/index.js?v=2.4"></script>
 </body>
 </html>

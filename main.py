@@ -39,6 +39,7 @@ from hashtags import (
     hashtags_for_platform,
 )
 from radar import run_radar
+from shorts_pack import build_shorts_pack, parse_request_payload
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -46,7 +47,7 @@ logger = logging.getLogger("main")
 
 app = FastAPI(title="6Frame Studio Marketing Automation Hub")
 
-PUBLIC_API_PATHS = {"/api/auth/login", "/api/auth/status", "/api/postproxy/callback", "/api/health", "/api/radar"}
+PUBLIC_API_PATHS = {"/api/auth/login", "/api/auth/status", "/api/postproxy/callback", "/api/health", "/api/radar", "/api/shorts-pack"}
 # These routes must remain reachable without credentials. Social networks fetch
 # generated media directly, while /r and /b are intentionally public campaign URLs.
 PUBLIC_PREFIXES = ("/static/", "/r/", "/b/", "/uploads/")
@@ -1979,6 +1980,35 @@ def api_radar(request: Request):
         "items": payload.get("items") or [],
         "summary": payload.get("summary") or "",
     }
+
+
+@app.api_route("/api/shorts-pack", methods=["GET", "POST"])
+async def api_shorts_pack(request: Request):
+    query = dict(request.query_params)
+    body = None
+    if request.method == "POST":
+        try:
+            parsed = await request.json()
+            if isinstance(parsed, dict):
+                body = parsed
+        except Exception:
+            body = None
+    payload = parse_request_payload(query, body)
+
+    def probe_duration(path: str):
+        try:
+            local = resolve_local_video_path(path)
+        except Exception:
+            return None
+        return get_video_duration_seconds(local)
+
+    return build_shorts_pack(
+        payload,
+        youtube_title_fn=youtube_shorts_title,
+        truncate_twitter_fn=truncate_twitter_text,
+        twitter_limit=TWITTER_CHAR_LIMIT,
+        probe_duration_fn=probe_duration if payload.get("video_path") else None,
+    )
 
 
 @app.post("/api/viral-search")

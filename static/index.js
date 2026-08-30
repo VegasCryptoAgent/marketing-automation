@@ -66,6 +66,46 @@ function fetchPublicRadar(refresh) {
         }));
 }
 
+function shortsPackRowHtml(row) {
+    const status = escapeHtml(row.status || "WARN");
+    const platform = escapeHtml(row.platform || "platform");
+    const title = escapeHtml(row.title || "");
+    const caption = escapeHtml(row.caption || "");
+    const preview = title
+        ? `<strong>${title}</strong>${caption ? ` — ${caption}` : ""}`
+        : caption;
+    return `
+        <div class="shorts-pack-row">
+            <div class="shorts-pack-row-head">
+                <span class="shorts-status ${status}">${status}</span>
+                <span class="shorts-pack-platform">${platform}</span>
+            </div>
+            <div class="shorts-pack-preview">${preview || "No adapted copy."}</div>
+        </div>
+    `;
+}
+
+function renderShortsPack(container, data, emptyText) {
+    if (!container) return;
+    const rows = Array.isArray(data && data.platforms) ? data.platforms : [];
+    if (!rows.length) {
+        container.innerHTML = `<p class="shorts-pack-empty">${escapeHtml(emptyText || "Does not publish. Autopilot still uses PostProxy.")}</p>`;
+        return;
+    }
+    container.innerHTML = rows.map(shortsPackRowHtml).join("");
+}
+
+function fetchShortsPack(payload) {
+    return fetch("/api/shorts-pack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+    }).then((res) => {
+        if (!res.ok) throw new Error("Shorts pack unavailable");
+        return res.json();
+    });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     // State variables
     let uploadedVideoPath = "";
@@ -1479,6 +1519,56 @@ document.addEventListener("DOMContentLoaded", () => {
         radarRefreshBtn.addEventListener("click", () => loadRadarStrip(true));
     }
     loadRadarStrip(false);
+
+    const shortsPackBtn = document.getElementById("shorts-pack-btn");
+    const shortsPackResults = document.getElementById("shorts-pack-results");
+    const shortsPackSummary = document.getElementById("shorts-pack-summary");
+    if (shortsPackResults) {
+        renderShortsPack(
+            shortsPackResults,
+            { platforms: [] },
+            "Does not publish. Autopilot still uses PostProxy. Enter a title and duration, then build the pack."
+        );
+    }
+
+    function readShortsPackFields() {
+        const numberOrEmpty = (id) => {
+            const raw = (document.getElementById(id) || {}).value;
+            if (raw === undefined || raw === null || String(raw).trim() === "") return undefined;
+            const n = Number(raw);
+            return Number.isFinite(n) ? n : undefined;
+        };
+        return {
+            title: ((document.getElementById("shorts-pack-title") || {}).value || "").trim(),
+            description: ((document.getElementById("shorts-pack-description") || {}).value || "").trim(),
+            duration_seconds: numberOrEmpty("shorts-pack-duration"),
+            width: numberOrEmpty("shorts-pack-width"),
+            height: numberOrEmpty("shorts-pack-height"),
+        };
+    }
+
+    function loadShortsPack() {
+        if (shortsPackBtn) shortsPackBtn.disabled = true;
+        fetchShortsPack(readShortsPackFields())
+            .then((data) => {
+                if (shortsPackSummary) {
+                    shortsPackSummary.textContent = data.summary || "Shorts pack updated. Does not publish.";
+                }
+                renderShortsPack(shortsPackResults, data, "No platform rows returned.");
+            })
+            .catch(() => {
+                if (shortsPackSummary) {
+                    shortsPackSummary.textContent = "Shorts pack failed. Radar and scanner still work. Autopilot still uses PostProxy.";
+                }
+            })
+            .finally(() => {
+                if (shortsPackBtn) shortsPackBtn.disabled = false;
+            });
+    }
+
+    if (shortsPackBtn) {
+        shortsPackBtn.addEventListener("click", loadShortsPack);
+    }
 
     const trendWorkspacePlaceholder = document.getElementById("trend-workspace-placeholder");
     const trendWorkspaceLayout = document.getElementById("trend-workspace-layout");
