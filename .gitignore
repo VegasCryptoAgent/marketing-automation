@@ -2,6 +2,7 @@
 __pycache__/
 settings.json
 scheduled_posts.json
+autopilot_slot.json
 engagement_queue.json
 engagement_state.json
 growth_os.json

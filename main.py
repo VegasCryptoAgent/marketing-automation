@@ -1528,7 +1528,22 @@ def publish_via_postproxy(post: dict, settings: dict, platforms: List[str]) -> d
 
     batches = plan_postproxy_batches(post, publishable, has_media)
 
-    results = [publish_batch(batch_platforms, include_media, body, thread_parts) for batch_platforms, include_media, body, thread_parts in batches]
+    results = []
+    for batch_platforms, include_media, body, thread_parts in batches:
+        try:
+            results.append(publish_batch(batch_platforms, include_media, body, thread_parts))
+        except Exception as batch_err:
+            logger.exception(f"PostProxy batch failed for {batch_platforms}")
+            results.append({
+                "platforms": [
+                    {
+                        "platform": platform,
+                        "status": "failed",
+                        "error": sanitize_postproxy_error(str(batch_err)),
+                    }
+                    for platform in batch_platforms
+                ]
+            })
     platform_results = []
     for result in results:
         platform_results.extend(result.get("platforms") or [])
@@ -2480,6 +2495,20 @@ class SchedulePostRequest(BaseModel):
     video_path: Optional[str] = None
 
 SCHEDULED_POSTS_FILE = os.path.join(STATE_DIR, "scheduled_posts.json")
+AUTOPILOT_SLOT_FILE = os.path.join(STATE_DIR, "autopilot_slot.json")
+
+
+def load_last_autonomous_slot() -> Optional[str]:
+    data = read_json_file(AUTOPILOT_SLOT_FILE, {})
+    if isinstance(data, dict):
+        slot = data.get("last_slot")
+        if isinstance(slot, str) and slot:
+            return slot
+    return None
+
+
+def save_last_autonomous_slot(slot: str):
+    write_json_file(AUTOPILOT_SLOT_FILE, {"last_slot": slot})
 
 def load_scheduled_posts() -> List[dict]:
     return read_json_file(SCHEDULED_POSTS_FILE, [])
@@ -2532,12 +2561,26 @@ def reconcile_postproxy_posts(posts: List[dict], settings: dict) -> bool:
                 if item.get("status") in ("published", "processing", "processed", "scheduled", "pending")
             ]
             post["postproxy_result"] = latest_posts[0] if len(latest_posts) == 1 else {"posts": latest_posts, "platforms": platform_results}
+            intended = {
+                platform_to_postproxy(p)
+                for p in resolve_platform_list(post.get("platform") or "")
+                if platform_to_postproxy(p) in POSTPROXY_SUPPORTED_PLATFORMS
+            }
+            seen = {item.get("platform") for item in platform_results if item.get("platform")}
+            incomplete = bool(intended - seen)
+            failure_text = "; ".join(f"{i.get('platform')}: {i.get('error') or i.get('status')}" for i in failures)
             if failures and accepted:
                 post["status"] = "PARTIAL_SUCCESS"
-                post["error_message"] = "; ".join(f"{i.get('platform')}: {i.get('error') or i.get('status')}" for i in failures)
+                post["error_message"] = failure_text
+            elif failures and incomplete and post.get("status") in ("SUCCESS", "PARTIAL_SUCCESS", "PUBLISHING"):
+                # Only one child post was stored (usually Twitter). Do not mark the
+                # whole Autopilot run failed when LinkedIn / Shorts / Reels were
+                # published in other PostProxy batches.
+                post["status"] = "PARTIAL_SUCCESS"
+                post["error_message"] = failure_text
             elif failures:
                 post["status"] = "FAILED"
-                post["error_message"] = "; ".join(f"{i.get('platform')}: {i.get('error') or i.get('status')}" for i in failures)
+                post["error_message"] = failure_text
             elif accepted:
                 post["status"] = "SUCCESS"
                 post["error_message"] = None
@@ -2928,6 +2971,8 @@ def apply_publish_result_to_post(p: dict, result: dict):
         p["tweet_ids"] = result["tweet_ids"]
     if result.get("postproxy_post_id"):
         p["postproxy_post_id"] = result["postproxy_post_id"]
+    if result.get("postproxy_post_ids"):
+        p["postproxy_post_ids"] = result["postproxy_post_ids"]
     if result.get("postproxy_result"):
         p["postproxy_result"] = result["postproxy_result"]
     if result.get("blocked_by_daily_limit"):
@@ -2958,6 +3003,29 @@ def _trend_source_url(trend: Optional[dict]) -> str:
     return (trend.get("url") or "").strip()
 
 
+def _source_download_rank(url: str) -> int:
+    """Prefer public short-form hosts that yt-dlp can fetch without YouTube cookies."""
+    lowered = (url or "").lower()
+    if "tiktok.com" in lowered or "instagram.com" in lowered:
+        return 0
+    if _is_youtube_source(url):
+        return 2
+    return 1
+
+
+def _is_youtube_bot_block(error: str) -> bool:
+    lowered = (error or "").lower()
+    return any(
+        token in lowered
+        for token in (
+            "sign in to confirm",
+            "not a bot",
+            "cookies-from-browser",
+            "use --cookies",
+        )
+    )
+
+
 def collect_autopilot_trend_candidates(
     forced_trend: Optional[dict] = None,
     scanned_trends: Optional[List[dict]] = None,
@@ -2977,6 +3045,7 @@ def collect_autopilot_trend_candidates(
         add(trend)
     for trend in (load_growth_os().get("last_trend_scan") or []):
         add(trend)
+    candidates.sort(key=lambda trend: _source_download_rank(_trend_source_url(trend)))
     return candidates[:MAX_AUTOPILOT_SOURCE_TRIES]
 
 
@@ -3048,36 +3117,20 @@ async def execute_autonomous_autopost(settings: dict, forced_trend: Optional[dic
     top_trend = None
     skipped: List[dict] = []
     video_error = None
-    for trend in candidates:
-        source_url = _trend_source_url(trend)
-        title = trend.get("title") or "Viral clip"
-        logger.info(f"Autopilot: downloading original video from {source_url} (no Veo/FAL/Runway generation).")
-        try:
-            downloaded_file = await loop.run_in_executor(
-                None,
-                download_and_trim_original_video,
-                source_url,
-                title,
-                60,
-                False,
-                180,
-            )
-            top_trend = trend
-            break
-        except Exception as download_err:
-            video_error = str(download_err)
-            skipped.append({"url": source_url, "title": title, "error": video_error})
-            logger.error(f"Autopilot: skip {source_url}; trying the next scanned trend. {download_err}")
+    skip_youtube = False
 
-    if downloaded_file is None and not scanned_this_run:
-        scanned_this_run = await _scan_autopilot_trends(settings)
-        extra = [
-            trend for trend in collect_autopilot_trend_candidates(None, scanned_this_run)
-            if _trend_source_url(trend) not in {item["url"] for item in skipped}
-        ]
-        for trend in extra:
+    async def try_download_candidates(trends: List[dict]) -> None:
+        nonlocal downloaded_file, top_trend, video_error, skip_youtube
+        for trend in trends:
             source_url = _trend_source_url(trend)
             title = trend.get("title") or "Viral clip"
+            if skip_youtube and _is_youtube_source(source_url):
+                skipped.append({
+                    "url": source_url,
+                    "title": title,
+                    "error": "Skipped YouTube after bot-check; preferring a public short-form source.",
+                })
+                continue
             logger.info(f"Autopilot: downloading original video from {source_url} (no Veo/FAL/Runway generation).")
             try:
                 downloaded_file = await loop.run_in_executor(
@@ -3090,11 +3143,23 @@ async def execute_autonomous_autopost(settings: dict, forced_trend: Optional[dic
                     180,
                 )
                 top_trend = trend
-                break
+                return
             except Exception as download_err:
                 video_error = str(download_err)
                 skipped.append({"url": source_url, "title": title, "error": video_error})
                 logger.error(f"Autopilot: skip {source_url}; trying the next scanned trend. {download_err}")
+                if _is_youtube_source(source_url) and _is_youtube_bot_block(video_error):
+                    skip_youtube = True
+
+    await try_download_candidates(candidates)
+
+    if downloaded_file is None and not scanned_this_run:
+        scanned_this_run = await _scan_autopilot_trends(settings)
+        extra = [
+            trend for trend in collect_autopilot_trend_candidates(None, scanned_this_run)
+            if _trend_source_url(trend) not in {item["url"] for item in skipped}
+        ]
+        await try_download_candidates(extra)
 
     if downloaded_file is None or top_trend is None:
         _record_failed_autopilot(skipped, video_error or "download failed")
@@ -3303,7 +3368,7 @@ ENGAGEMENT_REFRESH_INTERVAL_SECONDS = 900  # 15 minutes
 async def scheduler_loop():
     await asyncio.sleep(5)
     logger.info("Background scheduler loop started.")
-    last_autonomous_slot = None
+    last_autonomous_slot = load_last_autonomous_slot()
     last_metrics_refresh = None
     last_engagement_refresh = None
 
@@ -3337,6 +3402,7 @@ async def scheduler_loop():
                 if due_slot:
                     logger.info(f"Autonomous autoposting slot {due_slot} reached. Initiating pipeline...")
                     last_autonomous_slot = due_slot
+                    save_last_autonomous_slot(due_slot)
                     asyncio.create_task(execute_autonomous_autopost(settings))
 
             # 3. Periodically refresh post performance metrics (analytics feedback loop)

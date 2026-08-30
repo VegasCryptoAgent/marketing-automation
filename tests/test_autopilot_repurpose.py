@@ -264,6 +264,96 @@ def test_ytdlp_youtube_attempts_use_tv_player_client():
     assert "--impersonate" in blob
 
 
+def test_autopilot_candidates_prefer_tiktok_over_youtube(monkeypatch):
+    monkeypatch.setattr(main, "load_growth_os", lambda: {"last_trend_scan": []})
+    ranked = main.collect_autopilot_trend_candidates(
+        {"title": "YouTube pick", "url": KLING_URL},
+        [
+            {"title": "Another YT", "url": "https://www.youtube.com/watch?v=secondClip"},
+            {"title": "Public TikTok", "url": "https://www.tiktok.com/@studio/video/123"},
+        ],
+    )
+    assert ranked[0]["url"] == "https://www.tiktok.com/@studio/video/123"
+    assert any(_is_yt(item["url"]) for item in ranked)
+
+
+def _is_yt(url):
+    return "youtube.com" in url or "youtu.be" in url
+
+
+def test_autopilot_skips_remaining_youtube_after_bot_check(monkeypatch):
+    tried = []
+    tiktok = "https://www.tiktok.com/@studio/video/999"
+    youtube_b = "https://www.youtube.com/watch?v=secondClip"
+
+    def fake_download(url, title=None, max_duration_sec=60, allow_fallback=False, timeout_sec=180):
+        tried.append(url)
+        if "youtube" in url:
+            raise main.OriginalVideoDownloadError(
+                "Could not download this specific video. Last error: Sign in to confirm you’re not a bot. Use --cookies-from-browser"
+            )
+        return "/tmp/generated/original_tiktok.mp4"
+
+    saved = {}
+    monkeypatch.setattr(main, "download_and_trim_original_video", fake_download)
+    monkeypatch.setattr(main, "run_video_generation", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no gen")))
+    monkeypatch.setattr(
+        main,
+        "load_growth_os",
+        lambda: {"last_trend_scan": [{"title": "YT two", "url": youtube_b}]},
+    )
+    monkeypatch.setattr(main, "persist_trend_scan_result", lambda result: None)
+    monkeypatch.setattr(
+        main,
+        "run_live_trend_scanner",
+        lambda job_id, settings: main.update_job_status(
+            job_id,
+            "SUCCESS",
+            100,
+            "ok",
+            result={
+                "trends": [
+                    {
+                        "title": "Public TikTok",
+                        "url": tiktok,
+                        "recreated_linkedin_post": "TikTok copy",
+                        "recreated_twitter_thread": ["t"],
+                    }
+                ]
+            },
+        ),
+    )
+    monkeypatch.setattr(main, "load_scheduled_posts", lambda: [])
+    monkeypatch.setattr(main, "save_scheduled_posts", lambda posts: saved.setdefault("posts", posts))
+
+    asyncio.run(
+        main.execute_autonomous_autopost(
+            {
+                "require_autopilot_approval": True,
+                "autonomous_platforms": ["twitter", "linkedin"],
+            },
+            {"title": "YT one", "url": KLING_URL},
+        )
+    )
+
+    assert tiktok in tried
+    assert youtube_b not in tried
+    post = saved["posts"][0]
+    assert post["status"] == "AWAITING_APPROVAL"
+    assert post["source_url"] == tiktok
+
+
+def test_due_autonomous_slot_survives_process_restart(tmp_path, monkeypatch):
+    slot_file = tmp_path / "autopilot_slot.json"
+    monkeypatch.setattr(main, "AUTOPILOT_SLOT_FILE", str(slot_file))
+    morning = __import__("datetime").datetime(2026, 8, 21, 15, 5)
+    settings = {"autonomous_hours": [15], "autonomous_hour": 15}
+    first = main.due_autonomous_slot(morning, settings, main.load_last_autonomous_slot())
+    assert first == "2026-08-21-15"
+    main.save_last_autonomous_slot(first)
+    assert main.due_autonomous_slot(morning, settings, main.load_last_autonomous_slot()) is None
+
+
 def test_due_autonomous_slot_fires_twice_per_day():
     morning = __import__("datetime").datetime(2026, 8, 21, 15, 5)
     evening = __import__("datetime").datetime(2026, 8, 21, 0, 5)
