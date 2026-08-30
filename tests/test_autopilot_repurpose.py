@@ -338,10 +338,8 @@ def test_load_original_video_endpoint_requests_60s_trim(monkeypatch):
     from fastapi.testclient import TestClient
 
     client = TestClient(main.app)
-    token = __import__("base64").b64encode(b"admin:test-password").decode()
     res = client.post(
         "/api/load-original-video",
-        headers={"Authorization": f"Basic {token}"},
         json={"url": KLING_URL, "title": KLING_TITLE, "allow_fallback": False},
     )
     assert res.status_code == 200

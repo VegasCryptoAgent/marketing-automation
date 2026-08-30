@@ -1,4 +1,3 @@
-import base64
 import importlib
 import os
 from datetime import datetime, timedelta, timezone
@@ -17,11 +16,6 @@ from fastapi.testclient import TestClient
 
 client = TestClient(main.app)
 NOW = datetime(2026, 8, 30, 12, 0, tzinfo=timezone.utc)
-
-
-def basic_headers(username="admin", password="test-password"):
-    token = base64.b64encode(f"{username}:{password}".encode()).decode()
-    return {"Authorization": f"Basic {token}"}
 
 
 def _obs(title, url, source, engagement, hours_ago, metrics=None):

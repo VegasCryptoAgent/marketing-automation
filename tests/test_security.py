@@ -1,4 +1,3 @@
-import base64
 import importlib
 import os
 
@@ -13,32 +12,36 @@ main = importlib.import_module("main")
 client = TestClient(main.app)
 
 
-def basic_headers(username="admin", password="test-password"):
-    token = base64.b64encode(f"{username}:{password}".encode()).decode()
-    return {"Authorization": f"Basic {token}"}
-
-
-def test_admin_and_sensitive_api_require_authentication():
-    assert client.get("/").status_code == 401
-    assert client.get("/reports/example.pdf").status_code == 401
-    assert client.get("/api/settings").status_code == 401
-    assert client.post("/api/settings", json={}).status_code == 401
-    assert client.post("/api/trigger-autopilot").status_code == 401
-    assert client.post("/api/analyze", json={"video_path": "/etc/passwd", "website_url": "https://example.com"}).status_code == 401
-    assert client.post("/api/publish/twitter", json={"text": "blocked"}).status_code == 401
-    assert client.post("/api/publish/linkedin", json={"text": "blocked"}).status_code == 401
-
-
-def test_http_basic_auth_unlocks_admin():
-    response = client.get("/", headers=basic_headers())
+def test_dashboard_is_public_without_credentials():
+    response = client.get("/")
     assert response.status_code == 200
+    assert "www-authenticate" not in {k.lower() for k in response.headers}
     assert "6Frame Studio" in response.text
+    assert "Autopilot" in response.text
+    assert "Live Trend Scanner" in response.text or "Live Trends Scanner" in response.text
+    assert "auth-overlay" not in response.text
+    assert "Admin Access" not in response.text
 
 
-def test_arbitrary_filesystem_paths_are_rejected_even_when_authenticated():
+def test_admin_password_env_does_not_gate_the_app():
+    assert os.environ.get("ADMIN_PASSWORD") == "test-password"
+    assert client.get("/").status_code == 200
+    assert client.get("/api/settings").status_code == 200
+    assert client.get("/api/auth/status").json() == {"auth_required": False, "authenticated": True}
+    login = client.post("/api/auth/login", json={"password": "wrong"})
+    assert login.status_code == 200
+    assert login.json()["auth_required"] is False
+
+
+def test_public_apis_stay_public():
+    assert client.get("/api/health").status_code == 200
+    assert client.get("/api/radar").status_code == 200
+    assert client.get("/api/shorts-pack", params={"title": "Night Drive"}).status_code == 200
+
+
+def test_arbitrary_filesystem_paths_are_rejected():
     response = client.post(
         "/api/analyze",
-        headers=basic_headers(),
         json={"video_path": "/etc/passwd", "website_url": "https://example.com"},
     )
     assert response.status_code == 400

@@ -7,16 +7,13 @@ import asyncio
 import html
 import subprocess
 import shutil
-import hmac
-import hashlib
-import secrets
 import threading
 import base64
 import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
-from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException, Request, Response
-from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, HTMLResponse, RedirectResponse
+from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException, Request
+from fastapi.responses import FileResponse, PlainTextResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google import genai
@@ -47,10 +44,6 @@ logger = logging.getLogger("main")
 
 app = FastAPI(title="6Frame Studio Marketing Automation Hub")
 
-PUBLIC_API_PATHS = {"/api/auth/login", "/api/auth/status", "/api/postproxy/callback", "/api/health", "/api/radar", "/api/shorts-pack"}
-# These routes must remain reachable without credentials. Social networks fetch
-# generated media directly, while /r and /b are intentionally public campaign URLs.
-PUBLIC_PREFIXES = ("/static/", "/r/", "/b/", "/uploads/")
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(200 * 1024 * 1024)))
 ALLOWED_UPLOAD_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
 STATE_LOCKS: Dict[str, threading.RLock] = {}
@@ -81,59 +74,6 @@ def write_json_file(path: str, data: Any):
         with open(tmp_path, "w") as f:
             json.dump(data, f, indent=4)
         os.replace(tmp_path, path)
-
-def auth_enabled() -> bool:
-    return bool(os.environ.get("ADMIN_PASSWORD"))
-
-def session_signature() -> str:
-    password = os.environ.get("ADMIN_PASSWORD", "")
-    secret = os.environ.get("AUTH_SECRET") or os.environ.get("ADMIN_AUTH_SECRET") or password
-    return hmac.new(secret.encode(), password.encode(), hashlib.sha256).hexdigest()
-
-def basic_auth_is_valid(request: Request) -> bool:
-    authorization = request.headers.get("authorization", "")
-    if not authorization.startswith("Basic "):
-        return False
-    try:
-        decoded = base64.b64decode(authorization[6:], validate=True).decode("utf-8")
-        username, password = decoded.split(":", 1)
-    except (ValueError, UnicodeDecodeError):
-        return False
-    expected_username = os.environ.get("ADMIN_USERNAME", "admin")
-    expected_password = os.environ.get("ADMIN_PASSWORD", "")
-    return bool(expected_password) and hmac.compare_digest(username, expected_username) and hmac.compare_digest(
-        password, expected_password
-    )
-
-def request_is_authenticated(request: Request) -> bool:
-    if not auth_enabled():
-        return True
-    cookie_value = request.cookies.get("admin_session", "")
-    header_value = request.headers.get("x-admin-session", "")
-    expected = session_signature()
-    return (
-        hmac.compare_digest(cookie_value, expected)
-        or hmac.compare_digest(header_value, expected)
-        or basic_auth_is_valid(request)
-    )
-
-def is_public_path(path: str) -> bool:
-    return (
-        path in PUBLIC_API_PATHS
-        or path in ("/privacy-policy", "/terms-of-service")
-        or path.startswith(PUBLIC_PREFIXES)
-        or path.startswith("/tiktok")
-        or path.startswith("/oauth/postproxy/")
-    )
-
-@app.middleware("http")
-async def require_admin_session(request: Request, call_next):
-    if auth_enabled() and not is_public_path(request.url.path) and not request_is_authenticated(request):
-        headers = {"WWW-Authenticate": 'Basic realm="6Frame Studio Admin", charset="UTF-8"'}
-        if request.url.path.startswith("/api/"):
-            return JSONResponse({"detail": "Authentication required."}, status_code=401, headers=headers)
-        return PlainTextResponse("Authentication required.", status_code=401, headers=headers)
-    return await call_next(request)
 
 @app.middleware("http")
 async def add_no_cache_headers(request, call_next):
@@ -1643,27 +1583,13 @@ class GenerateVideoRequest(BaseModel):
     duration: int = 8
 
 @app.get("/api/auth/status")
-def auth_status(request: Request):
-    return {"auth_required": auth_enabled(), "authenticated": request_is_authenticated(request)}
+def auth_status():
+    # Dashboard login was removed. ADMIN_USERNAME / ADMIN_PASSWORD, if set, are unused.
+    return {"auth_required": False, "authenticated": True}
 
 @app.post("/api/auth/login")
-def auth_login(req: LoginRequest, response: Response):
-    expected = os.environ.get("ADMIN_PASSWORD", "")
-    if not expected:
-        return {"status": "SUCCESS", "auth_required": False}
-    if not hmac.compare_digest(req.password, expected):
-        raise HTTPException(status_code=401, detail="Invalid password.")
-    secure_cookie = os.environ.get("COOKIE_SECURE", "true").lower() != "false"
-    response.set_cookie(
-        "admin_session",
-        session_signature(),
-        httponly=True,
-        secure=secure_cookie,
-        samesite="lax",
-        max_age=60 * 60 * 24 * 14,
-        path="/",
-    )
-    return {"status": "SUCCESS"}
+def auth_login(req: LoginRequest):
+    return {"status": "SUCCESS", "auth_required": False}
 
 SECRET_SETTING_KEYS = [
     "gemini_api_key", "twitter_consumer_key", "twitter_consumer_secret",

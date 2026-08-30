@@ -31,6 +31,8 @@ Run the FastAPI development server from your terminal inside the project directo
 Navigate to your web browser:
 [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
+The Autopilot / Live Trend Scanner dashboard is public — no username/password login. `GET /` returns the cockpit HTML. `ADMIN_USERNAME` / `ADMIN_PASSWORD` (if still set on Railway) are unused. Outbound PostProxy and provider API keys are unchanged.
+
 ---
 
 ## How to Use the Pipeline
