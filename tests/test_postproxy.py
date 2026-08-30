@@ -45,13 +45,13 @@ def test_facebook_params_require_cached_page_id(tmp_path, monkeypatch):
     assert "twitter" not in params
 
 
-def test_capabilities_requires_auth():
+def test_capabilities_do_not_require_basic_auth():
     from fastapi.testclient import TestClient
     client = TestClient(main.app)
-    assert client.get("/api/capabilities").status_code == 401
-    assert client.get("/api/credentials").status_code == 401
-    assert client.post("/api/postproxy/sync").status_code == 401
-    assert client.get("/api/postproxy/status").status_code == 401
+    assert client.get("/api/capabilities").status_code != 401
+    assert client.get("/api/credentials").status_code != 401
+    assert client.post("/api/postproxy/sync").status_code != 401
+    assert client.get("/api/postproxy/status").status_code != 401
 
 
 def test_postproxy_callback_is_public():
@@ -78,8 +78,7 @@ def test_postproxy_status_has_no_secrets(tmp_path, monkeypatch):
         "synced_at": "2026-08-19T00:00:00",
     })
     client = TestClient(main.app)
-    token = __import__("base64").b64encode(b"admin:test-password").decode()
-    res = client.get("/api/postproxy/status", headers={"Authorization": f"Basic {token}"})
+    res = client.get("/api/postproxy/status")
     assert res.status_code == 200
     payload = res.json()
     blob = str(payload).lower()

@@ -167,13 +167,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Toast
     const toast = document.getElementById("toast");
-    const authOverlay = document.getElementById("auth-overlay");
-    const authForm = document.getElementById("auth-form");
-    const authPassword = document.getElementById("auth-password");
-    const authError = document.getElementById("auth-error");
 
     // Load configurations initially
-    checkAuth();
+    fetchSettings();
 
     /* ==========================================================================
        SETTINGS & MODAL
@@ -201,59 +197,6 @@ document.addEventListener("DOMContentLoaded", () => {
         setTimeout(() => {
             toast.classList.add("hidden");
         }, 3000);
-    }
-
-    function showAuth(message = "") {
-        if (!authOverlay) return;
-        authOverlay.classList.remove("hidden");
-        if (authError) authError.textContent = message;
-        if (authPassword) authPassword.focus();
-    }
-
-    function hideAuth() {
-        if (authOverlay) authOverlay.classList.add("hidden");
-        if (authPassword) authPassword.value = "";
-        if (authError) authError.textContent = "";
-    }
-
-    function checkAuth() {
-        fetch("/api/auth/status")
-            .then(res => res.json())
-            .then(data => {
-                if (data.auth_required && !data.authenticated) {
-                    showAuth();
-                    return;
-                }
-                hideAuth();
-                fetchSettings();
-            })
-            .catch(() => showAuth("Could not check admin session."));
-    }
-
-    if (authForm) {
-        authForm.addEventListener("submit", (e) => {
-            e.preventDefault();
-            const btn = authForm.querySelector("button");
-            if (btn) btn.disabled = true;
-            fetch("/api/auth/login", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password: authPassword.value })
-            })
-            .then(res => {
-                if (!res.ok) return res.json().then(e => { throw new Error(e.detail || "Invalid password") });
-                return res.json();
-            })
-            .then(() => {
-                hideAuth();
-                fetchSettings();
-                fetchGrowthOS();
-            })
-            .catch(err => showAuth(err.message))
-            .finally(() => {
-                if (btn) btn.disabled = false;
-            });
-        });
     }
 
     const SOCIAL_BADGE_IDS = {
@@ -538,9 +481,8 @@ document.addEventListener("DOMContentLoaded", () => {
     function fetchSettings() {
         fetch("/api/settings")
             .then(res => {
-                if (res.status === 401) {
-                    showAuth();
-                    throw new Error("Authentication required.");
+                if (!res.ok) {
+                    throw new Error("Could not load settings.");
                 }
                 return res.json();
             })
