@@ -97,6 +97,47 @@ def test_twitter_gets_one_or_two_tags_on_last_tweet_under_280():
     assert thread[-1].split("\n\n")[-1].startswith("#")
 
 
+def test_literal_backslash_n_and_hash_are_cleaned_on_linkedin():
+    escaped = (
+        "When the friction of production fades, true visual storytelling takes focus."
+        "\\n\\n\\#6FrameStudio \\#AIFilmmaking \\#AICinema \\#MobileCinematography \\#RunAndGun \\#GenerativeAI"
+    )
+    applied = hashtags.apply_hashtags_to_caption(
+        escaped,
+        ["#6FrameStudio", "#AIFilmmaking", "#AICinema", "#KlingAI", "#Sora", "#RunwayML", "#Midjourney", "#ShortFilm"],
+    )
+    body, tags = hashtags.strip_trailing_hashtag_paragraph(applied)
+    assert "\\n" not in applied
+    assert "\\#" not in applied
+    assert body == "When the friction of production fades, true visual storytelling takes focus."
+    assert applied.count("#6FrameStudio") == 1
+    assert tags[:3] == ["#6FrameStudio", "#AIFilmmaking", "#AICinema"]
+    assert applied == body + "\n\n" + " ".join(tags)
+
+
+def test_morning_linkedin_duplicate_tag_blocks_collapse():
+    raw = (
+        "The art of cinematography is untethered from the weight of the rig.\\n\\n"
+        "In a recent piece of run-and-gun filmmaking, @blake.ridder demonstrates a profound truth.\\n\\n"
+        "#6FrameStudio #AIFilmmaking #AICinema #MobileCinematography #RunAndGun #GenerativeAI"
+    )
+    post = {
+        "text": raw,
+        "campaign_title": "Autonomous: Public TikTok original",
+        "suggested_hashtags": ["#KlingAI", "#Sora", "#RunwayML", "#Midjourney", "#ShortFilm"],
+    }
+    linkedin = hashtags.apply_platform_hashtags(post, "linkedin")
+    assert "\\n" not in linkedin
+    assert "\\#" not in linkedin
+    assert linkedin.count("#6FrameStudio") == 1
+    assert linkedin.count("\n\n#") == 1
+    body, tags = hashtags.strip_trailing_hashtag_paragraph(linkedin)
+    assert "hashtag" not in body.lower()
+    assert not body.endswith("#GenerativeAI")
+    assert 5 <= len(tags) <= 8
+    assert tags[:3] == ["#6FrameStudio", "#AIFilmmaking", "#AICinema"]
+
+
 def test_apply_twice_is_idempotent():
     post = {
         "text": LIVE_CAPTION,
