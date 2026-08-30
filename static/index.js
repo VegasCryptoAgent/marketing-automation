@@ -21,6 +21,51 @@ function shortDate(value) {
     return date.toLocaleString();
 }
 
+function radarItemHtml(item) {
+    const lifecycle = escapeHtml(item.lifecycle || "NEW");
+    const source = escapeHtml(item.source || "public");
+    const title = escapeHtml(item.title || "Untitled observation");
+    const url = item.url || "";
+    const score = Number(item.score || 0).toFixed(0);
+    const link = url
+        ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Open original ↗</a>`
+        : "";
+    return `
+        <div class="radar-item">
+            <span class="radar-lifecycle ${lifecycle}">${lifecycle}</span>
+            <div class="radar-item-main">
+                <div class="radar-item-title">${title}</div>
+                <div class="radar-item-meta">
+                    <span class="radar-source-chip">${source}</span>
+                    <span>score ${escapeHtml(score)}</span>
+                    ${link}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderRadarList(container, items, emptyText) {
+    if (!container) return;
+    if (!items || items.length === 0) {
+        container.innerHTML = `<p class="sidebar-help" style="margin:0;">${escapeHtml(emptyText || "No public observations yet.")}</p>`;
+        return;
+    }
+    container.innerHTML = items.map(radarItemHtml).join("");
+}
+
+function fetchPublicRadar(refresh) {
+    return fetch("/api/radar", { method: refresh ? "POST" : "GET" })
+        .then((res) => {
+            if (!res.ok) throw new Error("Radar unavailable");
+            return res.json();
+        })
+        .then((data) => ({
+            items: Array.isArray(data.items) ? data.items : [],
+            summary: data.summary || "",
+        }));
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     // State variables
     let uploadedVideoPath = "";
@@ -1106,6 +1151,17 @@ document.addEventListener("DOMContentLoaded", () => {
         if (navGrowth) navGrowth.classList.remove("active");
         automationView.scrollIntoView({ behavior: "smooth", block: "start" });
         fetchSettings(); // Refresh diagnostics and input states
+        fetchPublicRadar(false)
+            .then((data) => {
+                const summary = document.getElementById("cockpit-radar-summary");
+                if (summary && data.summary) summary.textContent = data.summary;
+                renderRadarList(
+                    document.getElementById("cockpit-radar-items"),
+                    data.items.slice(0, 3),
+                    "No radar hits yet. Open Live Trend Scanner and refresh radar."
+                );
+            })
+            .catch(() => {});
     });
 
     if (navRepurposer) {
@@ -1379,6 +1435,7 @@ document.addEventListener("DOMContentLoaded", () => {
         subnavPrebuilt.classList.remove("active");
         scannerContainer.classList.remove("hidden");
         prebuiltContainer.classList.add("hidden");
+        loadRadarStrip(false);
     });
 
     /* ==========================================================================
@@ -1397,6 +1454,31 @@ document.addEventListener("DOMContentLoaded", () => {
     const scannerProgressCard = document.getElementById("scanner-progress-card");
     const scannerStatusMsg = document.getElementById("scanner-status-msg");
     const trendCardsList = document.getElementById("trend-cards-list");
+    const radarRefreshBtn = document.getElementById("radar-refresh-btn");
+    const radarItemsEl = document.getElementById("radar-items");
+    const radarSummaryEl = document.getElementById("radar-summary");
+
+    function loadRadarStrip(refresh) {
+        if (radarRefreshBtn) radarRefreshBtn.disabled = true;
+        fetchPublicRadar(refresh)
+            .then((data) => {
+                if (radarSummaryEl) {
+                    radarSummaryEl.textContent = data.summary || "Public radar updated.";
+                }
+                renderRadarList(radarItemsEl, data.items, "No public observations this pass. Adapters timed out or returned nothing.");
+            })
+            .catch(() => {
+                if (radarSummaryEl) radarSummaryEl.textContent = "Radar refresh failed. Scanner can still run.";
+            })
+            .finally(() => {
+                if (radarRefreshBtn) radarRefreshBtn.disabled = false;
+            });
+    }
+
+    if (radarRefreshBtn) {
+        radarRefreshBtn.addEventListener("click", () => loadRadarStrip(true));
+    }
+    loadRadarStrip(false);
 
     const trendWorkspacePlaceholder = document.getElementById("trend-workspace-placeholder");
     const trendWorkspaceLayout = document.getElementById("trend-workspace-layout");
