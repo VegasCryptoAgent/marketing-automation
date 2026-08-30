@@ -38,6 +38,7 @@ from hashtags import (
     collect_hashtag_pool,
     hashtags_for_platform,
 )
+from radar import run_radar
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -45,7 +46,7 @@ logger = logging.getLogger("main")
 
 app = FastAPI(title="6Frame Studio Marketing Automation Hub")
 
-PUBLIC_API_PATHS = {"/api/auth/login", "/api/auth/status", "/api/postproxy/callback"}
+PUBLIC_API_PATHS = {"/api/auth/login", "/api/auth/status", "/api/postproxy/callback", "/api/health", "/api/radar"}
 # These routes must remain reachable without credentials. Social networks fetch
 # generated media directly, while /r and /b are intentionally public campaign URLs.
 PUBLIC_PREFIXES = ("/static/", "/r/", "/b/", "/uploads/")
@@ -1964,6 +1965,21 @@ def apply_template(req: ApplyTemplateRequest, background_tasks: BackgroundTasks)
 @app.get("/api/template-status/{job_id}")
 def get_template_status(job_id: str):
     return get_job_status(job_id)
+
+@app.get("/api/health")
+def api_health():
+    return {"status": "ok"}
+
+
+@app.api_route("/api/radar", methods=["GET", "POST"])
+def api_radar(request: Request):
+    refresh = request.method == "POST"
+    payload = run_radar(refresh=refresh)
+    return {
+        "items": payload.get("items") or [],
+        "summary": payload.get("summary") or "",
+    }
+
 
 @app.post("/api/viral-search")
 def start_viral_search(background_tasks: BackgroundTasks):

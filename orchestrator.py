@@ -549,6 +549,15 @@ def run_live_trend_scanner(
             update_job_status(job_id, "FAILED", 0, "Missing Gemini API Key. Please configure it in Settings.")
             return
 
+        update_job_status(job_id, "PROCESSING", 8, "Scanning public keyless radar (HN, RSS, Bluesky, Wikipedia)...")
+        radar_pack = ""
+        try:
+            from radar import format_evidence_pack, run_radar
+            radar_result = run_radar(refresh=True)
+            radar_pack = format_evidence_pack(radar_result.get("items") or [])
+        except Exception as radar_err:
+            logger.warning(f"Public radar failed inside trend scanner: {radar_err}")
+
         update_job_status(job_id, "PROCESSING", 10, "Fetching supplementary real-time AI news context...")
         news_context = fetch_realtime_news_context()
 
@@ -567,6 +576,16 @@ def run_live_trend_scanner(
                 + instagram_context
             )
 
+        radar_evidence_block = ""
+        if radar_pack:
+            radar_evidence_block = (
+                "PUBLIC RADAR EVIDENCE PACK (observed from keyless public sources — these URLs are real):\n"
+                f"{radar_pack}\n\n"
+                "HARD RULE: Prefer the URLs in the evidence pack. Do not invent, guess, or reconstruct links. "
+                "If a trend is not in the pack, you may still search, but never fabricate a URL — use \"unknown\". "
+                "Never invent TikTok, X/Twitter, or Instagram permalinks.\n"
+            )
+
         search_prompt = f"""
         Search across Reddit (specifically r/aivideo, r/midjourney, r/StableDiffusion, r/ChatGPT), YouTube, Twitter/X, LinkedIn, and Instagram for the top 10 most viral or trending AI video posts from the last 24 hours.
         Focus specifically on content in categories aligned with 6Frame Studio's niche:
@@ -574,6 +593,7 @@ def run_live_trend_scanner(
         - AI logo animations, visual loops, and motion design
         - AI music videos and audio-visual experiments
 
+        {radar_evidence_block}
         Here is supplementary real-time AI news context you may use as additional seed material — but you must still actively search the social platforms above directly rather than relying on this alone:
         {news_context}
 

@@ -8,6 +8,7 @@ This is an in-house, standalone multi-agent orchestration tool and dashboard des
 - **Glassmorphic Local Dashboard**: Built with a sleek dark-themed, premium interface for dragging-and-dropping videos, watching live orchestration steps, reviewing staged content, and modifying copy before publishing.
 - **Direct Platform API Integration**: Publishes staged posts to X (single tweets or threads) using `tweepy` and LinkedIn using `requests` REST API.
 - **Mock Publish Sandbox Mode**: Allows sandbox execution and copy generation without needing live Twitter or LinkedIn API keys.
+- **Live Trend Scanner radar**: A keyless public-source radar (Hacker News, Google News RSS, YouTube channel RSS, Bluesky, optional Wikipedia pageviews) scores what is actually moving — velocity, acceleration, anomaly, freshness — and feeds real URLs into Gemini so the scanner cites observations instead of inventing links. `GET`/`POST /api/radar` is Gemini-free. Velocity radar idea inspired by ViralRadar (MIT); original implementation. No new API keys.
 
 ---
 
