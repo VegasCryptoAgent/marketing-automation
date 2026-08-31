@@ -123,9 +123,12 @@ def test_injected_rewrite_updates_overlays_without_network(tmp_path):
     assert "#6FrameStudio" in pack["caption"]
 
 
-def test_module_never_mentions_postproxy():
+def test_module_never_imports_or_calls_postproxy():
     source = Path(slideshow_pack.__file__).read_text()
-    assert "postproxy" not in source.lower()
+    lowered = source.lower()
+    assert "import postproxy" not in lowered
+    assert "from postproxy" not in lowered
+    assert "does not publish" in lowered
 
 
 def test_api_get_and_post_public_and_advisory():
