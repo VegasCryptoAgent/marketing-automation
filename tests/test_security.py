@@ -37,6 +37,7 @@ def test_public_apis_stay_public():
     assert client.get("/api/health").status_code == 200
     assert client.get("/api/radar").status_code == 200
     assert client.get("/api/shorts-pack", params={"title": "Night Drive"}).status_code == 200
+    assert client.get("/api/slideshow-pack", params={"brief": "Night Drive"}).status_code == 200
 
 
 def test_arbitrary_filesystem_paths_are_rejected():

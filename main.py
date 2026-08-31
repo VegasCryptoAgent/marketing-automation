@@ -37,6 +37,10 @@ from hashtags import (
 )
 from radar import run_radar
 from shorts_pack import build_shorts_pack, parse_request_payload
+from slideshow_pack import (
+    build_slideshow_pack,
+    parse_request_payload as parse_slideshow_payload,
+)
 
 # Setup logger
 logging.basicConfig(level=logging.INFO)
@@ -1934,6 +1938,66 @@ async def api_shorts_pack(request: Request):
         truncate_twitter_fn=truncate_twitter_text,
         twitter_limit=TWITTER_CHAR_LIMIT,
         probe_duration_fn=probe_duration if payload.get("video_path") else None,
+    )
+
+
+def rewrite_slideshow_copy(
+    beats: List[Dict[str, Any]],
+    caption: str,
+    brief: str,
+) -> Optional[Dict[str, Any]]:
+    """Optional 6Frame voice rewrite. Returns None when Gemini is not configured."""
+    settings = load_settings()
+    api_key = settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    brand_voice = settings.get("brand_voice") or DEFAULT_SETTINGS.get("brand_voice") or ""
+    deck = {
+        "brief": brief,
+        "beats": [
+            {"index": row.get("index"), "role": row.get("role"), "overlay": row.get("overlay")}
+            for row in beats
+        ],
+        "caption": caption,
+    }
+    prompt = f"""
+    You are the overlay copy agent for 6Frame Studio.
+    Rewrite this TikTok Photo Mode / Instagram carousel in 6Frame voice.
+
+    BRAND VOICE
+    {brand_voice}
+
+    CURRENT DECK
+    {json.dumps(deck, ensure_ascii=False)}
+
+    Rules:
+    - Keep the same beat count, roles, and indexes.
+    - Each overlay is one thought, at most two short lines. Specific nouns and active verbs.
+    - No generic marketing buzzwords (game-changer, revolutionize, mind-blown).
+    - Caption is one cinematic sentence, then a blank line and hashtags.
+    - Caption must include #6FrameStudio #AIFilmmaking #AICinema.
+    - Return JSON only: {{"beats":[{{"index":1,"overlay":"..."}}], "caption":"..."}}
+    """
+    data = call_gemini_json(settings, prompt, None, use_search=False)
+    return data if isinstance(data, dict) else None
+
+
+@app.api_route("/api/slideshow-pack", methods=["GET", "POST"])
+async def api_slideshow_pack(request: Request):
+    query = dict(request.query_params)
+    body = None
+    if request.method == "POST":
+        try:
+            parsed = await request.json()
+            if isinstance(parsed, dict):
+                body = parsed
+        except Exception:
+            body = None
+    payload = parse_slideshow_payload(query, body)
+    return build_slideshow_pack(
+        payload,
+        rewrite_fn=rewrite_slideshow_copy,
+        output_dir=GENERATED_DIR,
     )
 
 

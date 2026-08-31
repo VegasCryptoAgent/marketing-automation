@@ -106,6 +106,43 @@ function fetchShortsPack(payload) {
     });
 }
 
+function slideshowBeatHtml(beat) {
+    const role = escapeHtml(beat.role || "slide");
+    const overlay = escapeHtml(beat.overlay || "");
+    const src = escapeHtml(beat.image_path || "");
+    const alt = escapeHtml(beat.alt || overlay || "Slideshow slide");
+    return `
+        <figure class="slideshow-pack-thumb">
+            <img src="${src}" alt="${alt}" width="88" height="156">
+            <figcaption>
+                <span class="slideshow-pack-role">${role}</span>
+                <span class="slideshow-pack-overlay">${overlay || "No overlay."}</span>
+            </figcaption>
+        </figure>
+    `;
+}
+
+function renderSlideshowPack(container, data, emptyText) {
+    if (!container) return;
+    const beats = Array.isArray(data && data.beats) ? data.beats : [];
+    if (!beats.length) {
+        container.innerHTML = `<p class="shorts-pack-empty">${escapeHtml(emptyText || "This does not publish.")}</p>`;
+        return;
+    }
+    container.innerHTML = beats.map(slideshowBeatHtml).join("");
+}
+
+function fetchSlideshowPack(payload) {
+    return fetch("/api/slideshow-pack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+    }).then((res) => {
+        if (!res.ok) throw new Error("Slideshow pack unavailable");
+        return res.json();
+    });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     // State variables
     let uploadedVideoPath = "";
@@ -1510,6 +1547,53 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (shortsPackBtn) {
         shortsPackBtn.addEventListener("click", loadShortsPack);
+    }
+
+    const slideshowPackBtn = document.getElementById("slideshow-pack-btn");
+    const slideshowPackResults = document.getElementById("slideshow-pack-results");
+    const slideshowPackSummary = document.getElementById("slideshow-pack-summary");
+    const slideshowPackCaption = document.getElementById("slideshow-pack-caption");
+    if (slideshowPackResults) {
+        renderSlideshowPack(
+            slideshowPackResults,
+            { beats: [] },
+            "This does not publish."
+        );
+    }
+
+    function readSlideshowPackFields() {
+        const rawCount = ((document.getElementById("slideshow-pack-count") || {}).value || "").trim();
+        const parsedCount = rawCount === "" ? undefined : Number(rawCount);
+        return {
+            brief: ((document.getElementById("slideshow-pack-brief") || {}).value || "").trim(),
+            slide_count: Number.isFinite(parsedCount) ? parsedCount : undefined,
+        };
+    }
+
+    function loadSlideshowPack() {
+        if (slideshowPackBtn) slideshowPackBtn.disabled = true;
+        fetchSlideshowPack(readSlideshowPackFields())
+            .then((data) => {
+                if (slideshowPackSummary) {
+                    slideshowPackSummary.textContent = data.summary || "Slideshow pack updated. This does not publish.";
+                }
+                renderSlideshowPack(slideshowPackResults, data, "This does not publish.");
+                if (slideshowPackCaption) {
+                    slideshowPackCaption.textContent = data.caption || "";
+                }
+            })
+            .catch(() => {
+                if (slideshowPackSummary) {
+                    slideshowPackSummary.textContent = "Slideshow pack failed. Radar and Shorts pack still work. This does not publish.";
+                }
+            })
+            .finally(() => {
+                if (slideshowPackBtn) slideshowPackBtn.disabled = false;
+            });
+    }
+
+    if (slideshowPackBtn) {
+        slideshowPackBtn.addEventListener("click", loadSlideshowPack);
     }
 
     const trendWorkspacePlaceholder = document.getElementById("trend-workspace-placeholder");
