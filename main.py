@@ -34,6 +34,7 @@ from hashtags import (
     apply_platform_twitter_thread,
     collect_hashtag_pool,
     hashtags_for_platform,
+    unescape_caption_escapes,
 )
 from radar import run_radar
 from shorts_pack import build_shorts_pack, parse_request_payload
@@ -2388,15 +2389,15 @@ def download_and_trim_original_video(
 
 def resolve_autopilot_copy(top_trend: dict, settings: dict) -> dict:
     """Use scan copy when present; otherwise Gemini-repurpose the source URL."""
-    linkedin_text = (top_trend.get("recreated_linkedin_post") or "").strip()
+    linkedin_text = unescape_caption_escapes(top_trend.get("recreated_linkedin_post") or "").strip()
     twitter_thread = top_trend.get("recreated_twitter_thread") or None
-    instagram_caption = (
+    instagram_caption = unescape_caption_escapes(
         (top_trend.get("recreated_instagram_caption") or "").strip()
         or (top_trend.get("repurposed_instagram_caption") or "").strip()
     )
-    suggested_hashtags = list(top_trend.get("suggested_hashtags") or [])
+    suggested_hashtags = [unescape_caption_escapes(tag) for tag in (top_trend.get("suggested_hashtags") or [])]
     if isinstance(twitter_thread, list):
-        twitter_thread = [t for t in twitter_thread if str(t).strip()]
+        twitter_thread = [unescape_caption_escapes(t).strip() for t in twitter_thread if str(t).strip()]
         if not twitter_thread:
             twitter_thread = None
     source_url = (top_trend.get("url") or "").strip()
@@ -2405,14 +2406,20 @@ def resolve_autopilot_copy(top_trend: dict, settings: dict) -> dict:
         try:
             content = repurpose_video_link_copy(source_url, settings)
             if not linkedin_text:
-                linkedin_text = (content.repurposed_linkedin_post or "").strip()
+                linkedin_text = unescape_caption_escapes(content.repurposed_linkedin_post or "").strip()
             if not twitter_thread:
-                twitter_thread = content.repurposed_twitter_thread
+                twitter_thread = [
+                    unescape_caption_escapes(part).strip()
+                    for part in (content.repurposed_twitter_thread or [])
+                    if str(part).strip()
+                ] or None
             if not instagram_caption:
-                instagram_caption = (getattr(content, "repurposed_instagram_caption", None) or "").strip()
+                instagram_caption = unescape_caption_escapes(
+                    getattr(content, "repurposed_instagram_caption", None) or ""
+                ).strip()
             extra_tags = getattr(content, "suggested_hashtags", None)
             if extra_tags:
-                suggested_hashtags.extend(extra_tags)
+                suggested_hashtags.extend(unescape_caption_escapes(tag) for tag in extra_tags)
         except Exception as copy_err:
             logger.error(f"Autopilot: repurpose_video_link_copy failed: {copy_err}")
     if not linkedin_text:

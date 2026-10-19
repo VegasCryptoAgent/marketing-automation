@@ -53,6 +53,27 @@ def test_resolve_autopilot_copy_uses_scan_fields(monkeypatch):
     assert copy["suggested_hashtags"] == ["#KlingAI", "#AIvideo"]
 
 
+def test_resolve_autopilot_copy_unescapes_literal_newlines_and_hashes(monkeypatch):
+    monkeypatch.setattr(main, "repurpose_video_link_copy", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no fallback")))
+    copy = main.resolve_autopilot_copy(
+        {
+            "url": KLING_URL,
+            "title": KLING_TITLE,
+            "recreated_linkedin_post": "Hook line.\\n\\n\\#6FrameStudio \\#AIFilmmaking",
+            "recreated_twitter_thread": ["First.\\nSecond"],
+            "recreated_instagram_caption": "IG.\\n\\n\\#6FrameStudio",
+            "suggested_hashtags": ["\\#KlingAI"],
+        },
+        {},
+    )
+    assert "\\n" not in copy["linkedin_text"]
+    assert "\\#" not in copy["linkedin_text"]
+    assert copy["linkedin_text"] == "Hook line.\n\n#6FrameStudio #AIFilmmaking"
+    assert copy["twitter_thread"] == ["First.\nSecond"]
+    assert copy["instagram_caption"] == "IG.\n\n#6FrameStudio"
+    assert copy["suggested_hashtags"] == ["#KlingAI"]
+
+
 def test_resolve_autopilot_copy_falls_back_to_repurpose(monkeypatch):
     class Fake:
         repurposed_linkedin_post = "Repurposed LI"

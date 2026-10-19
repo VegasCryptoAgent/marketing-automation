@@ -27,6 +27,21 @@ INSTAGRAM_STYLE_PLATFORMS = {"instagram", "tiktok"}
 
 HASHTAG_RE = re.compile(r"#([A-Za-z0-9_]{1,100})")
 
+
+def unescape_caption_escapes(text: str) -> str:
+    """Turn Gemini/JSON leftover escapes into real characters.
+
+    Copy models often emit the two-character sequence \\n (and sometimes \\#)
+    instead of a newline or hash. LinkedIn then shows '\\n\\n#6FrameStudio'.
+    """
+    raw = text or ""
+    if "\\" not in raw:
+        return raw
+    out = raw.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
+    out = out.replace("\\t", "\t")
+    out = out.replace("\\#", "#")
+    return out
+
 CANONICAL_TAG_CASE = {
     "#6framestudio": "#6FrameStudio",
     "#aifilmmaking": "#AIFilmmaking",
@@ -82,9 +97,10 @@ FALLBACK_TOPIC_TAGS = [
 
 
 def normalize_hashtag(raw: str) -> str:
-    token = (raw or "").strip()
+    token = unescape_caption_escapes(raw or "").strip()
     if not token:
         return ""
+    token = token.lstrip("\\")
     token = token if token.startswith("#") else f"#{token}"
     match = HASHTAG_RE.match(token)
     if not match:
@@ -102,7 +118,7 @@ def normalize_hashtag(raw: str) -> str:
 def extract_hashtags(text: str) -> List[str]:
     found: List[str] = []
     seen = set()
-    for match in HASHTAG_RE.finditer(text or ""):
+    for match in HASHTAG_RE.finditer(unescape_caption_escapes(text or "")):
         tag = normalize_hashtag(f"#{match.group(1)}")
         key = tag.lower()
         if tag and key not in seen:
@@ -112,17 +128,17 @@ def extract_hashtags(text: str) -> List[str]:
 
 
 def _is_hashtag_only_line(line: str) -> bool:
-    stripped = (line or "").strip()
+    stripped = unescape_caption_escapes(line or "").strip()
     if not stripped or not extract_hashtags(stripped):
         return False
     leftover = HASHTAG_RE.sub("", stripped)
-    leftover = re.sub(r"[\s,;·•|/]+", "", leftover)
+    leftover = re.sub(r"[\s,;·•|/\\]+", "", leftover)
     return leftover == ""
 
 
 def strip_trailing_hashtag_paragraph(text: str) -> Tuple[str, List[str]]:
     """Remove a trailing hashtag-only paragraph; keep hook text intact."""
-    raw = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    raw = unescape_caption_escapes(text or "").replace("\r\n", "\n").replace("\r", "\n")
     if not raw.strip():
         return "", []
     lines = raw.split("\n")
@@ -222,7 +238,7 @@ def hashtags_for_platform(pool: Sequence[str], platform: str) -> List[str]:
 
 
 def apply_hashtags_to_caption(text: str, tags: Sequence[str]) -> str:
-    body, existing = strip_trailing_hashtag_paragraph(text or "")
+    body, existing = strip_trailing_hashtag_paragraph(unescape_caption_escapes(text or ""))
     # Incoming tags are already platform-capped. Keep existing only if none were supplied.
     merged = _dedupe_hashtags(tags) if tags else existing
     if not merged:
@@ -251,7 +267,7 @@ def apply_hashtags_to_twitter_thread(
     tags: Sequence[str],
     limit: int = 280,
 ) -> List[str]:
-    tweets = [str(part).strip() for part in (parts or []) if str(part).strip()] or [""]
+    tweets = [unescape_caption_escapes(str(part)).strip() for part in (parts or []) if str(part).strip()] or [""]
     last_body, existing = strip_trailing_hashtag_paragraph(tweets[-1])
     chosen = _dedupe_hashtags([*tags, *existing])[:2]
     fitted: List[str] = []
@@ -280,13 +296,13 @@ def apply_hashtags_to_twitter_thread(
 def base_caption_for_platform(post: dict, platform: str) -> str:
     key = (platform or "").lower()
     if key in INSTAGRAM_STYLE_PLATFORMS:
-        return (
+        return unescape_caption_escapes(
             (post.get("instagram_caption") or "").strip()
             or (post.get("recreated_instagram_caption") or "").strip()
             or (post.get("repurposed_instagram_caption") or "").strip()
             or (post.get("text") or "")
         )
-    return post.get("text") or ""
+    return unescape_caption_escapes(post.get("text") or "")
 
 
 def apply_platform_hashtags(post: dict, platform: str, limit: Optional[int] = None) -> str:
@@ -308,8 +324,8 @@ def apply_platform_hashtags(post: dict, platform: str, limit: Optional[int] = No
 def apply_platform_twitter_thread(post: dict, limit: int = 280) -> List[str]:
     existing = post.get("thread")
     if existing:
-        parts = [str(item).strip() for item in existing if str(item).strip()]
+        parts = [unescape_caption_escapes(str(item)).strip() for item in existing if str(item).strip()]
     else:
-        parts = [post.get("text") or ""]
+        parts = [unescape_caption_escapes(post.get("text") or "")]
     tags = hashtags_for_platform(collect_hashtag_pool(post), "twitter")
     return apply_hashtags_to_twitter_thread(parts, tags, limit=limit)
