@@ -16,6 +16,7 @@ reports/
 __pycache__/
 *.pyc
 static/assets/generated/
+generated/
 uploads/
 *.log
 .playwright-cli/

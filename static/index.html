@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/index.css?v=2.5">
+    <link rel="stylesheet" href="/static/index.css?v=2.6">
 </head>
 <body>
     <div class="glow-bg"></div>
@@ -393,6 +393,24 @@
                             </div>
                         </div>
                         <div id="shorts-pack-results" class="shorts-pack-results"></div>
+                    </div>
+
+                    <div class="glass-card radar-strip slideshow-pack-strip" id="slideshow-pack-strip">
+                        <div class="radar-strip-header">
+                            <h3>Slideshow pack</h3>
+                            <button id="slideshow-pack-btn" class="secondary-btn" type="button">Build slideshow</button>
+                        </div>
+                        <p class="sidebar-help" id="slideshow-pack-summary">This does not publish. TikTok Photo Mode / IG carousel from a brief. Autopilot still uses PostProxy for the viral clip.</p>
+                        <div class="slideshow-pack-fields">
+                            <label class="shorts-pack-field">Brief
+                                <textarea id="slideshow-pack-brief" rows="3" placeholder="Night drive cinematic trailer for AI filmmakers"></textarea>
+                            </label>
+                            <label class="shorts-pack-field">Slide count
+                                <input id="slideshow-pack-count" type="number" min="5" max="7" step="1" value="5" placeholder="5">
+                            </label>
+                        </div>
+                        <div id="slideshow-pack-results" class="slideshow-pack-results"></div>
+                        <p class="slideshow-pack-caption" id="slideshow-pack-caption"></p>
                     </div>
 
                     <button id="scanner-trigger-btn" class="primary-btn glow-btn" style="width:100%; margin-bottom: 1rem;">
@@ -876,6 +894,7 @@
                 </div>
                 <div id="cockpit-radar-items" class="radar-items radar-items-row"></div>
                 <p class="sidebar-help cockpit-shorts-recap">Shorts pack is advisory. Autopilot still uses PostProxy.</p>
+                <p class="sidebar-help cockpit-slideshow-recap">Slideshow pack is advisory. Does not publish.</p>
             </div>
 
             <div class="cockpit-grid" style="display: grid; grid-template-columns: 1.2fr 1.5fr 1.3fr; gap: 1.5rem; align-items: start; margin-bottom: 2rem;">
@@ -1820,6 +1839,6 @@
     <div id="toast" class="toast hidden">Post copied successfully!</div>
     
     <!-- Scripts -->
-    <script src="/static/index.js?v=2.5"></script>
+    <script src="/static/index.js?v=2.6"></script>
 </body>
 </html>

@@ -8,3 +8,4 @@ pydantic==2.10.6
 yt-dlp>=2026.8.19
 curl_cffi>=0.7.0
 reportlab==4.2.5
+Pillow==11.3.0
